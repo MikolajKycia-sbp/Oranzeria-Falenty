@@ -398,7 +398,12 @@ legendToggle.onclick = () => {
   legendToggle.textContent = c ? '+' : '–';
   try { localStorage.setItem('falenty-oranzeria:legenda-zwinieta', c ? '1' : ''); } catch (_) {}
 };
-try { if (localStorage.getItem('falenty-oranzeria:legenda-zwinieta')) legendToggle.onclick(); } catch (_) {}
+// zwinieta, gdy tak zapisano albo (bez zapisanego wyboru) na waskim ekranie, np. telefonie
+let legendPref = null;
+try { legendPref = localStorage.getItem('falenty-oranzeria:legenda-zwinieta'); } catch (_) {}
+if (legendPref === '1' || (legendPref === null && viewer.clientWidth < 600)) {
+  legend.classList.add('collapsed'); legendToggle.textContent = '+';
+}
 
 // ---------- tabela ----------
 const tbody = document.querySelector('#tbl tbody');
