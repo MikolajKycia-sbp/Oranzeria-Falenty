@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oranżeria Falenty – waloryzacja</title>
+<style>
+  :root {
+    --bg: #f4f2ee; --panel: #ffffff; --ink: #24211d; --muted: #6f6a62; --line: #e2ddd4;
+    --accent: #2f5d8a; --hl: #fff1c2; --hl-strong: #ffe08a; --viewer: #e9e6e0;
+    --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font: 13px/1.4 var(--font); color: var(--ink); background: var(--bg); display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); }
+  header .spacer { flex: 1; }
+  button, select, input { font: inherit; }
+  .btn { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 5px 10px; cursor: pointer; color: var(--ink); }
+  .btn:hover { border-color: #bdb6aa; background: #faf8f4; }
+  .btn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .seg { display: inline-flex; }
+  .seg .btn { border-radius: 0; margin-left: -1px; }
+  .seg .btn:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+  .seg .btn:last-child { border-radius: 0 6px 6px 0; }
+
+  main { flex: 1; display: flex; min-height: 0; }
+  #viewer { flex: 1; position: relative; min-width: 0; background: var(--viewer); }
+  #viewer canvas { display: block; width: 100%; height: 100%; outline: none; }
+  #legend { position: absolute; left: 12px; bottom: 12px; background: rgba(255,255,255,.94); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; max-width: 280px; max-height: calc(100% - 64px); overflow: auto; }
+  #legend h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  #legend h3 span { flex: 1; }
+  #legend.collapsed h3 { margin: 0; }
+  #legend.collapsed #legendBody { display: none; }
+  #legend h4 { margin: 8px 0 4px; font-size: 11px; font-weight: 600; color: var(--muted); border-top: 1px solid var(--line); padding-top: 6px; }
+  #legend .mat { display: flex; align-items: center; gap: 8px; padding: 1px 4px; font-size: 12px; }
+  .lgtoggle { border: 1px solid var(--line); background: #fff; border-radius: 4px; width: 22px; height: 20px; line-height: 16px; padding: 0; cursor: pointer; color: var(--muted); }
+  #legend .item { display: flex; align-items: center; gap: 8px; padding: 2px 4px; border-radius: 4px; cursor: default; }
+  #legend .item:hover, #legend .item.hl { background: var(--hl); }
+  #legend .item .n { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .chip { width: 12px; height: 12px; border-radius: 3px; flex: none; border: 1px solid rgba(0,0,0,.2); display: inline-block; }
+  #viewtools { position: absolute; right: 12px; top: 12px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  #viewtools .btn { background: rgba(255,255,255,.94); }
+  #tooltip { position: absolute; pointer-events: none; background: #fff; border: 1px solid #cfc8bb; border-radius: 8px; padding: 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,.12); max-width: 340px; display: none; z-index: 5; }
+  #tooltip .id { font-weight: 600; margin-bottom: 4px; }
+  #tooltip .row { display: flex; gap: 6px; align-items: baseline; margin-top: 2px; }
+  #tooltip .k { color: var(--muted); min-width: 108px; }
+  #loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 14px; }
+
+  aside { width: clamp(440px, 42vw, 640px); display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line); min-height: 0; }
+  .tablebar { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .tablebar input[type=search] { flex: 1; min-width: 140px; border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+  .tablebar .count { color: var(--muted); white-space: nowrap; }
+  .dirty-info { flex-basis: 100%; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: #fff4e0; border: 1px solid #f0c987; border-radius: 6px; padding: 5px 8px; color: #6b4a12; }
+  .dirty-info[hidden] { display: none; }
+  .dirty-info code { background: #fbe7c4; padding: 0 3px; border-radius: 3px; }
+  .dirty-info .btn { margin-left: auto; padding: 2px 8px; }
+  tbody td.c-st.dirty { box-shadow: inset 3px 0 0 #e8a33a; }
+  .tablewrap { flex: 1; overflow: auto; min-height: 0; }
+  table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  thead th { position: sticky; top: 0; background: #f7f5f1; z-index: 1; text-align: left; font-weight: 600; padding: 7px 8px; border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  thead th .arrow { color: var(--muted); font-size: 10px; margin-left: 4px; }
+  th.c-id { width: 29%; } th.c-sz { width: 22%; } th.c-st { width: 19%; } th.c-wt { width: 30%; }
+  tbody td { padding: 5px 8px; border-bottom: 1px solid #efebe4; vertical-align: top; }
+  tbody td.c-id { font-weight: 500; overflow-wrap: anywhere; }
+  tbody td.c-id .auto { color: var(--muted); font-weight: 400; font-size: 11px; display: block; }
+  tbody td .sz { display: flex; gap: 6px; align-items: center; }
+  tbody td select { width: 100%; border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; background: #fff; }
+  tbody td.c-wt .prio { display: inline-block; font-size: 10px; font-weight: 600; border-radius: 3px; padding: 0 4px; margin-right: 4px; color: #fff; vertical-align: 1px; }
+  .p1 { background: #b3261e; } .p2 { background: #d9822b; } .p3 { background: #6c8f3a; } .p4 { background: #3d7a8a; } .p0 { background: #9a948b; }
+  tbody tr.hl td { background: var(--hl); }
+  tbody td.hlc { background: var(--hl-strong) !important; }
+  tbody tr.pinned td { box-shadow: inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent); }
+  tbody tr.pinned td:first-child { box-shadow: inset 3px 0 0 var(--accent), inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent); }
+
+  dialog { border: 1px solid var(--line); border-radius: 10px; padding: 0; max-width: min(860px, 92vw); max-height: 86vh; }
+  dialog .dh { display: flex; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #fff; }
+  dialog .dh h2 { margin: 0; font-size: 15px; flex: 1; }
+  dialog .db { padding: 12px 16px; }
+  dialog table td, dialog table th { border-bottom: 1px solid #efebe4; padding: 4px 6px; text-align: left; vertical-align: top; }
+  dialog ul { padding-left: 18px; }
+  dialog code { background: #f3f0ea; padding: 0 3px; border-radius: 3px; }
+
+  @media (max-width: 900px) {
+    main { flex-direction: column; }
+    #viewer { min-height: 55vh; }
+    aside { width: 100%; max-width: none; border-left: 0; border-top: 1px solid var(--line); min-height: 45vh; }
+  }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<header>
+  <h1>Oranżeria w Falentach</h1>
+  <span class="sub" id="srcinfo">waloryzacja – model 3D</span>
+  <span class="spacer"></span>
+  <span class="seg" id="colormode">
+    <button class="btn on" data-mode="state" title="Kolory warstw stanu zachowania">Stan zachowania</button>
+    <button class="btn" data-mode="material" title="Kolory warstw materiałowych (Oranzeria::*)">Materiał</button>
+  </span>
+  <button class="btn" id="btnRules">Reguły wytycznych</button>
+  <button class="btn" id="btnNotes">Uwagi do modelu</button>
+</header>
+<main>
+  <section id="viewer">
+    <div id="loading">Wczytywanie modelu…</div>
+    <div id="viewtools">
+      <button class="btn" data-view="front" title="Elewacja NE (arkadowa)">Front</button>
+      <button class="btn" data-view="back" title="Elewacja SW (tylna)">Tył</button>
+      <button class="btn" data-view="persp">Perspektywa</button>
+      <button class="btn" data-view="top">Z góry</button>
+      <button class="btn" id="btnXray" title="Przy podświetlaniu z tabeli pozostałe elementy stają się półprzezroczyste">Prześwietlanie: wł.</button>
+    </div>
+    <div id="legend">
+      <h3><span>Stan zachowania</span><button class="lgtoggle" id="legendToggle" title="Zwiń / rozwiń legendę">–</button></h3>
+      <div id="legendBody">
+        <div id="legendItems"></div>
+        <div id="legendMat" hidden><h4>Materiały (kolory modelu)</h4><div id="legendMatItems"></div></div>
+      </div>
+    </div>
+    <div id="tooltip"></div>
+  </section>
+  <aside>
+    <div class="tablebar">
+      <input type="search" id="filter" placeholder="Szukaj (ID, stan, wytyczne)…">
+      <span class="count" id="count"></span>
+      <button class="btn" id="btnExport" title="Pobierz nową wersję wspólnego pliku data/stan-techniczny.js">Zapisz plik</button>
+      <button class="btn" id="btnImport" title="Wczytaj stany techniczne z pliku (.js lub .json)">Import</button>
+      <input type="file" id="importFile" accept=".js,.json,application/json,text/javascript" hidden>
+      <span class="dirty-info" id="dirtyInfo" hidden>Niezapisane zmiany: <b>0</b> – kliknij „Zapisz plik” i podmień <code>data/stan-techniczny.js</code>.
+        <button class="btn" id="btnDiscard">Odrzuć</button></span>
+    </div>
+    <div class="tablewrap">
+      <table id="tbl">
+        <thead><tr>
+          <th class="c-id" data-col="id">ID elementu<span class="arrow"></span></th>
+          <th class="c-sz" data-col="sz">Stan zachowania<span class="arrow"></span></th>
+          <th class="c-st" data-col="st">Stan techniczny<span class="arrow"></span></th>
+          <th class="c-wt" data-col="wt">Wytyczne<span class="arrow"></span></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </aside>
+</main>
+
+<dialog id="dlgRules"><div class="dh"><h2>Reguły wyznaczania wytycznych</h2><button class="btn" data-close>Zamknij</button></div><div class="db" id="rulesBody"></div></dialog>
+<dialog id="dlgNotes"><div class="dh"><h2>Uwagi do modelu</h2><button class="btn" data-close>Zamknij</button></div><div class="db" id="notesBody"></div></dialog>
+
+<script src="js/reguly-wytycznych.js"></script>
+<script src="data/model-data.js"></script>
+<script src="data/stan-techniczny.js"></script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const D = window.MODEL_DATA;
+if (!D || !window.REGULY_WYTYCZNYCH) {
+  document.getElementById('loading').textContent = 'Nie udało się wczytać danych (data/model-data.js lub js/reguly-wytycznych.js). Otwórz index.html z folderu projektu.';
+  throw new Error('Brak danych modelu');
+}
+const RULES = window.REGULY_WYTYCZNYCH;
+const TECH = window.STANY_TECHNICZNE;
+const TECH_LABEL = Object.fromEntries(TECH.map(t => [t.key, t.label]));
+const STORE_KEY = 'falenty-oranzeria:stan-techniczny-zmiany';
+
+// ---------- dane ----------
+const stateByKey = Object.fromEntries(D.states.map(s => [s.key, s]));
+const cmpNat = (a, b) => a.localeCompare(b, 'pl', { numeric: true, sensitivity: 'base' });
+const els = D.elements.map(e => ({ ...e, state: stateByKey[e.stateKey] })).sort((a, b) => cmpNat(a.id, b.id));
+els.forEach((e, i) => e.idx = i);
+const byId = new Map(els.map(e => [e.id, e]));
+document.getElementById('srcinfo').textContent = 'waloryzacja – model 3D (' + D.source + ')';
+
+// stan techniczny: wspolny plik data/stan-techniczny.js + niezapisane zmiany tej przegladarki
+// (local: ID -> wartosc lub '' = wyczyszczone; wpis znika, gdy zgadza sie z plikiem)
+const shared = window.STAN_TECHNICZNY || {};
+let local = {};
+try { local = JSON.parse(localStorage.getItem(STORE_KEY) || '{}') || {}; } catch (_) { local = {}; }
+for (const id of Object.keys(local)) if (!byId.has(id) || local[id] === (shared[id] || '')) delete local[id];
+const saveTech = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(local)); } catch (_) {} };
+saveTech();
+const techOf = e => { const v = e.id in local ? local[e.id] : shared[e.id]; return TECH_LABEL[v] ? v : null; };
+const isDirty = e => e.id in local;
+function setTech(id, v) { if (v === (shared[id] || '')) delete local[id]; else local[id] = v; }
+function mergedTech() { const o = {}; for (const e of els) { const t = techOf(e); if (t) o[e.id] = t; } return o; }
+
+function ruleFor(e) {
+  const z = e.state.grade, t = techOf(e);
+  for (const r of RULES) {
+    if ('z' in r) {
+      if (r.z === null) { if (z !== null) continue; }
+      else if (z === null || z < r.z[0] || z > r.z[1]) continue;
+    }
+    if ('t' in r && !r.t.includes(t)) continue;
+    return r;
+  }
+  return { tekst: '—', priorytet: null };
+}
+// nazwy warstw w Rhino sa bez polskich znakow - tylko do wyswietlania
+const PL = { sredni: 'średni', zly: 'zły', niezadowalajacy: 'niezadowalający', zadowalajacy: 'zadowalający',
+  wypelnienia: 'wypełnienia', Sciany: 'Ściany', dzialowe: 'działowe' };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const plText = t => t.replace(/\p{L}+/gu, w => PL[w] || w);
+const stateLabel = s => s.grade ? `${String(s.grade).padStart(2, '0')} – ${plText(s.label)}` : s.label;
+
+// ---------- geometria ----------
+const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
+const positions = new Float32Array(b64(D.geometry.positions));
+const indices = new Uint32Array(b64(D.geometry.indices));
+const matRGB = new Uint8Array(b64(D.geometry.colors));
+const nV = positions.length / 3;
+
+const stateCol = new Float32Array(nV * 3), matCol = new Float32Array(nV * 3);
+const tmp = new THREE.Color();
+for (const e of els) {
+  tmp.set(e.state.color); // Color.set('#hex') konwertuje juz sRGB -> liniowe
+  for (let v = e.vStart; v < e.vStart + e.vCount; v++) {
+    stateCol.set([tmp.r, tmp.g, tmp.b], v * 3);
+    const c = new THREE.Color().setRGB(matRGB[v * 3] / 255, matRGB[v * 3 + 1] / 255, matRGB[v * 3 + 2] / 255, THREE.SRGBColorSpace);
+    matCol.set([c.r, c.g, c.b], v * 3);
+  }
+}
+const posAttr = new THREE.BufferAttribute(positions, 3);
+const stateAttr = new THREE.BufferAttribute(stateCol, 3);
+const matAttr = new THREE.BufferAttribute(matCol, 3);
+
+const baseGeo = new THREE.BufferGeometry();
+baseGeo.setAttribute('position', posAttr);
+baseGeo.setIndex(new THREE.BufferAttribute(indices, 1));
+baseGeo.computeVertexNormals();
+const normAttr = baseGeo.getAttribute('normal');
+baseGeo.setAttribute('color', stateAttr);
+baseGeo.computeBoundingBox(); baseGeo.computeBoundingSphere();
+
+// bboxy elementow
+for (const e of els) {
+  const b = new THREE.Box3();
+  const p = new THREE.Vector3();
+  for (let v = e.vStart; v < e.vStart + e.vCount; v++) b.expandByPoint(p.fromArray(positions, v * 3));
+  e.box = b;
+}
+// trojkat -> element
+const triOwner = new Int32Array(indices.length / 3);
+for (const e of els) triOwner.fill(e.idx, e.iStart / 3, (e.iStart + e.iCount) / 3);
+
+// ---------- scena ----------
+const viewer = document.getElementById('viewer');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+viewer.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#e9e6e0');
+const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 2000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.12;
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0xb7ad9c, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(-30, 60, 45); scene.add(sun);
+const fill = new THREE.DirectionalLight(0xffffff, 0.5); fill.position.set(40, 20, -40); scene.add(fill);
+
+const baseMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+const baseMesh = new THREE.Mesh(baseGeo, baseMat);
+scene.add(baseMesh);
+
+const bb = baseGeo.boundingBox, center = bb.getCenter(new THREE.Vector3()), size = bb.getSize(new THREE.Vector3());
+const grid = new THREE.GridHelper(Math.ceil(Math.max(size.x, size.z) * 1.6), 40, 0xcfc8bb, 0xdcd6cc);
+grid.position.set(center.x, bb.min.y - 0.02, center.z); scene.add(grid);
+
+// warstwa podswietlenia (wspoldzieli bufory pozycji/normalnych)
+const hlGeo = new THREE.BufferGeometry();
+hlGeo.setAttribute('position', posAttr); hlGeo.setAttribute('normal', normAttr); hlGeo.setAttribute('color', stateAttr);
+const hlMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, side: THREE.DoubleSide });
+const hlMesh = new THREE.Mesh(hlGeo, hlMat); hlMesh.visible = false; hlMesh.renderOrder = 2; scene.add(hlMesh);
+// kontur w kolorze spoza palety stanow
+const edgeMat = new THREE.LineBasicMaterial({ color: 0x0a6cff, transparent: true, opacity: 0.5 });
+let edges = null;
+
+function resize() {
+  const w = viewer.clientWidth, h = viewer.clientHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(viewer); resize();
+
+// widoki
+function frame(box, dir, animate = true) {
+  // dokladne dopasowanie naroznikow prostopadloscianu do kadru kamery perspektywicznej
+  const c = box.getCenter(new THREE.Vector3());
+  const back = dir.clone().normalize();
+  const right = new THREE.Vector3().crossVectors(Math.abs(back.y) > 0.999 ? new THREE.Vector3(0, 0, -1) : new THREE.Vector3(0, 1, 0), back).normalize();
+  const up = new THREE.Vector3().crossVectors(back, right);
+  const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), tanH = tanV * camera.aspect;
+  let dist = 0.5;
+  for (let i = 0; i < 8; i++) {
+    const p = new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).sub(c);
+    const z = p.dot(back);
+    dist = Math.max(dist, Math.abs(p.dot(right)) / tanH + z, Math.abs(p.dot(up)) / tanV + z);
+  }
+  dist *= 1.08;
+  const to = c.clone().add(back.multiplyScalar(dist));
+  if (!animate) { camera.position.copy(to); controls.target.copy(c); controls.update(); return; }
+  const p0 = camera.position.clone(), t0 = controls.target.clone(), start = performance.now();
+  const step = now => {
+    const k = Math.min(1, (now - start) / 450), q = k * (2 - k);
+    camera.position.lerpVectors(p0, to, q); controls.target.lerpVectors(t0, c, q); controls.update();
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+// Rhino: elewacja NE (arkadowa) przy Y=0, wnetrze w +Y  ->  three.js: front w +Z
+const VIEWS = {
+  front: new THREE.Vector3(0, 0.12, 1),
+  back: new THREE.Vector3(0, 0.25, -1),
+  persp: new THREE.Vector3(-0.65, 0.55, 1),
+  top: new THREE.Vector3(0, 1, 0.001),
+};
+document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => frame(bb, VIEWS[b.dataset.view]));
+frame(bb, VIEWS.persp, false);
+
+// ---------- podswietlanie ----------
+let xray = true;
+let hoverSet = null, hoverGhost = false, pinned = null; // pinned: {ids:Set, ghost}
+function activeHL() { return hoverSet ? { ids: hoverSet, ghost: hoverGhost } : pinned; }
+let lastKey = null; // null wymusza odswiezenie
+function applyHighlight() {
+  const a = activeHL();
+  const key = a ? [...a.ids].sort().join('|') + '#' + a.ghost + xray + colorMode : '';
+  if (key === lastKey) return;
+  lastKey = key;
+  if (edges) { scene.remove(edges); edges.geometry.dispose(); edges = null; }
+  if (!a || !a.ids.size) {
+    hlMesh.visible = false;
+    setBaseLook('normal');
+  } else {
+    const list = [...a.ids].map(id => byId.get(id)).filter(Boolean);
+    let n = 0; for (const e of list) n += e.iCount;
+    const idx = new Uint32Array(n); let o = 0;
+    for (const e of list) { idx.set(indices.subarray(e.iStart, e.iStart + e.iCount), o); o += e.iCount; }
+    hlGeo.setIndex(new THREE.BufferAttribute(idx, 1));
+    hlGeo.computeBoundingSphere();
+    hlMesh.visible = true;
+    const eg = new THREE.BufferGeometry(); eg.setAttribute('position', posAttr); eg.setIndex(new THREE.BufferAttribute(idx, 1));
+    edges = new THREE.LineSegments(new THREE.EdgesGeometry(eg, 25), edgeMat); edges.renderOrder = 3;
+    eg.dispose();
+    scene.add(edges);
+    setBaseLook(a.ghost && xray ? 'ghost' : 'dim');
+  }
+  syncTableHighlight();
+}
+// normal: zwykle kolory; dim: pozostale elementy przyciemnione; ghost: pozostale polprzezroczyste
+function setBaseLook(look) {
+  const ghost = look === 'ghost';
+  baseMat.transparent = ghost; baseMat.opacity = ghost ? 0.13 : 1; baseMat.depthWrite = !ghost;
+  baseMat.vertexColors = !ghost;
+  baseMat.color.set(ghost ? '#b9b2a6' : look === 'dim' ? '#a3a3a3' : '#ffffff');
+  baseMat.needsUpdate = true;
+}
+function setHover(ids, ghost) { hoverSet = ids && ids.size ? ids : null; hoverGhost = !!ghost; applyHighlight(); }
+
+// ---------- tryb kolorow ----------
+let colorMode = 'state';
+document.querySelectorAll('#colormode .btn').forEach(b => b.onclick = () => {
+  colorMode = b.dataset.mode;
+  document.querySelectorAll('#colormode .btn').forEach(x => x.classList.toggle('on', x === b));
+  const attr = colorMode === 'state' ? stateAttr : matAttr;
+  baseGeo.setAttribute('color', attr); hlGeo.setAttribute('color', attr);
+  document.getElementById('legendMat').hidden = colorMode !== 'material';
+  lastKey = null; applyHighlight();
+});
+const btnX = document.getElementById('btnXray');
+btnX.onclick = () => { xray = !xray; btnX.textContent = 'Prześwietlanie: ' + (xray ? 'wł.' : 'wył.'); lastKey = null; applyHighlight(); };
+
+// ---------- legenda ----------
+const legendItems = document.getElementById('legendItems');
+for (const s of D.states) {
+  const n = els.filter(e => e.state === s).length;
+  if (!n) continue;
+  const d = document.createElement('div');
+  d.className = 'item'; d.dataset.state = s.key;
+  d.innerHTML = `<span class="chip" style="background:${s.color}"></span><span>${stateLabel(s)}</span><span class="n">${n}</span>`;
+  d.onmouseenter = () => setHover(new Set(els.filter(e => e.state === s).map(e => e.id)), true);
+  d.onmouseleave = () => setHover(null);
+  legendItems.append(d);
+}
+document.getElementById('legendMatItems').innerHTML = (D.materials || []).map(m =>
+  `<div class="mat"><span class="chip" style="background:${m.color}"></span>${esc(plText(m.name))}</div>`).join('');
+const legend = document.getElementById('legend'), legendToggle = document.getElementById('legendToggle');
+legendToggle.onclick = () => {
+  const c = legend.classList.toggle('collapsed');
+  legendToggle.textContent = c ? '+' : '–';
+  try { localStorage.setItem('falenty-oranzeria:legenda-zwinieta', c ? '1' : ''); } catch (_) {}
+};
+try { if (localStorage.getItem('falenty-oranzeria:legenda-zwinieta')) legendToggle.onclick(); } catch (_) {}
+
+// ---------- tabela ----------
+const tbody = document.querySelector('#tbl tbody');
+const rowById = new Map();
+let sortCol = 'id', sortDir = 1, filterText = '';
+
+function cellVals(e) {
+  const r = ruleFor(e);
+  return { id: e.id, sz: e.state.key, st: techOf(e) || '', wt: r.tekst, prio: r.priorytet };
+}
+function sameAs(col, e) {
+  const v = cellVals(e)[col];
+  return new Set(els.filter(x => cellVals(x)[col] === v).map(x => x.id));
+}
+
+function buildRows() {
+  tbody.textContent = '';
+  rowById.clear();
+  for (const e of els) {
+    const tr = document.createElement('tr');
+    tr.dataset.id = e.id;
+    const sub = e.unnamed ? 'ID nadane automatycznie (obiekt bez nazwy)' : e.autoId ? 'ID nadane automatycznie (brak bloku)' : e.split ? `część bloku „${e.block}”` : '';
+    tr.innerHTML =
+      `<td class="c-id" data-col="id">${esc(e.id)}${sub ? `<span class="auto">${esc(sub)}</span>` : ''}</td>` +
+      `<td class="c-sz" data-col="sz"><span class="sz"><span class="chip" style="background:${e.state.color}"></span>${esc(stateLabel(e.state))}</span></td>` +
+      `<td class="c-st" data-col="st"></td>` +
+      `<td class="c-wt" data-col="wt"></td>`;
+    const sel = document.createElement('select');
+    sel.title = 'Stan techniczny (zapisywany w tej przeglądarce)';
+    sel.innerHTML = `<option value="">—</option>` + TECH.map(t => `<option value="${t.key}">${t.label}</option>`).join('');
+    sel.value = techOf(e) || '';
+    sel.onchange = () => {
+      setTech(e.id, sel.value);
+      saveTech(); refreshRow(e); updateDirty(); lastKey = null; applyHighlight();
+    };
+    tr.children[2].append(sel);
+    rowById.set(e.id, tr);
+    refreshRow(e);
+    tbody.append(tr);
+  }
+  renderOrder();
+}
+function refreshRow(e) {
+  const tr = rowById.get(e.id), r = ruleFor(e);
+  tr.children[3].innerHTML = (r.priorytet ? `<span class="prio p${r.priorytet}" title="Priorytet ${r.priorytet}">P${r.priorytet}</span>` : '') + esc(r.tekst);
+  const sel = tr.children[2].querySelector('select'); if (sel.value !== (techOf(e) || '')) sel.value = techOf(e) || '';
+  tr.children[2].classList.toggle('dirty', isDirty(e));
+  tr.children[2].title = isDirty(e) ? 'Zmiana niezapisana we wspólnym pliku (stan w pliku: ' + (TECH_LABEL[shared[e.id]] || 'nieokreślony') + ')' : '';
+}
+function sortValue(e, col) {
+  if (col === 'sz') return e.state.grade ?? 99;
+  if (col === 'st') { const t = techOf(e); return t ? TECH.findIndex(x => x.key === t) : 99; }
+  if (col === 'wt') { const r = ruleFor(e); return (r.priorytet ?? 9) * 1000 + RULES.indexOf(r); }
+  return 0;
+}
+function renderOrder() {
+  const norm = s => s.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/ł/g, 'l');
+  const f = norm(filterText.trim());
+  const list = els.filter(e => {
+    if (!f) return true;
+    const v = cellVals(e);
+    return norm([e.id, stateLabel(e.state), TECH_LABEL[v.st] || 'nieokreślony', v.wt, ...e.categories, ...e.parts].join(' ')).includes(f);
+  });
+  list.sort((a, b) => (sortCol === 'id' ? cmpNat(a.id, b.id) * sortDir
+    : (sortValue(a, sortCol) - sortValue(b, sortCol)) * sortDir || cmpNat(a.id, b.id)));
+  const visible = new Set(list.map(e => e.id));
+  for (const e of els) rowById.get(e.id).hidden = !visible.has(e.id);
+  for (const e of list) tbody.append(rowById.get(e.id));
+  document.getElementById('count').textContent = `${list.length} / ${els.length}`;
+  document.querySelectorAll('#tbl thead th').forEach(th => th.querySelector('.arrow').textContent = th.dataset.col === sortCol ? (sortDir > 0 ? '▲' : '▼') : '');
+}
+document.querySelectorAll('#tbl thead th').forEach(th => th.onclick = () => {
+  if (sortCol === th.dataset.col) sortDir = -sortDir; else { sortCol = th.dataset.col; sortDir = 1; }
+  renderOrder();
+});
+document.getElementById('filter').oninput = ev => { filterText = ev.target.value; renderOrder(); };
+
+// hover nad komorkami tabeli
+let hoverCell = null;
+tbody.addEventListener('mouseover', ev => {
+  const td = ev.target.closest('td'); if (!td || td === hoverCell) return;
+  hoverCell = td;
+  const e = byId.get(td.parentElement.dataset.id), col = td.dataset.col;
+  setHover(col === 'id' ? new Set([e.id]) : sameAs(col, e), true);
+  markCells(col, e);
+});
+tbody.addEventListener('mouseleave', () => { hoverCell = null; markCells(null); setHover(null); });
+function markCells(col, e) {
+  tbody.querySelectorAll('td.hlc').forEach(td => td.classList.remove('hlc'));
+  if (!col) return;
+  const ids = col === 'id' ? new Set([e.id]) : sameAs(col, e);
+  for (const id of ids) rowById.get(id).querySelector(`td[data-col="${col}"]`).classList.add('hlc');
+}
+// klik w ID -> przyblizenie do elementu i przypiecie
+tbody.addEventListener('click', ev => {
+  const td = ev.target.closest('td'); if (!td || td.dataset.col !== 'id') return;
+  const e = byId.get(td.parentElement.dataset.id);
+  pin(new Set([e.id]), true);
+  const dir = camera.position.clone().sub(controls.target);
+  frame(e.box, dir.lengthSq() ? dir : VIEWS.persp);
+});
+function syncTableHighlight() {
+  const a = activeHL();
+  for (const [id, tr] of rowById) {
+    tr.classList.toggle('hl', !!(a && a.ids.has(id)));
+    tr.classList.toggle('pinned', !!(pinned && pinned.ids.has(id)));
+  }
+  legendItems.querySelectorAll('.item').forEach(d => d.classList.toggle('hl', !!(a && els.some(e => a.ids.has(e.id) && e.state.key === d.dataset.state))));
+}
+function pin(ids, ghost) { pinned = ids && ids.size ? { ids, ghost } : null; lastKey = null; applyHighlight(); }
+
+// ---------- hover / klik na modelu ----------
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), tip = document.getElementById('tooltip');
+let modelHoverId = null, downAt = null;
+function pick(ev) {
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const hit = ray.intersectObject(baseMesh, false)[0];
+  return hit ? els[triOwner[hit.faceIndex]] : null;
+}
+renderer.domElement.addEventListener('pointermove', ev => {
+  if (ev.buttons) { hideTip(); return; }
+  const e = pick(ev);
+  if (!e) { if (modelHoverId) { modelHoverId = null; setHover(null); } hideTip(); return; }
+  if (e.id !== modelHoverId) {
+    modelHoverId = e.id;
+    setHover(new Set([e.id]), false);
+    scrollToRow(e.id, false);
+  }
+  showTip(e, ev);
+});
+renderer.domElement.addEventListener('pointerleave', () => { modelHoverId = null; setHover(null); hideTip(); });
+renderer.domElement.addEventListener('pointerdown', ev => { downAt = [ev.clientX, ev.clientY]; });
+renderer.domElement.addEventListener('pointerup', ev => {
+  if (!downAt || Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) > 4) return;
+  const e = pick(ev);
+  pin(e ? new Set([e.id]) : null, false);
+  if (e) scrollToRow(e.id, true);
+});
+// przewija tylko kontener tabeli (nie cala strone)
+const tableWrap = document.querySelector('.tablewrap');
+function scrollToRow(id, center) {
+  const tr = rowById.get(id); if (!tr || tr.hidden) return;
+  const head = tableWrap.querySelector('thead').offsetHeight;
+  const top = tr.offsetTop, bottom = top + tr.offsetHeight, view = tableWrap.clientHeight;
+  let target = null;
+  if (center) target = top - head - (view - head - tr.offsetHeight) / 2;
+  else if (top - head < tableWrap.scrollTop) target = top - head;
+  else if (bottom > tableWrap.scrollTop + view) target = bottom - view;
+  if (target !== null) tableWrap.scrollTo({ top: Math.max(0, target), behavior: center ? 'smooth' : 'auto' });
+}
+addEventListener('keydown', ev => { if (ev.key === 'Escape' && !document.querySelector('dialog[open]')) pin(null); });
+function showTip(e, ev) {
+  const r = ruleFor(e), t = techOf(e);
+  tip.innerHTML =
+    `<div class="id">${esc(e.id)}</div>` +
+    `<div class="row"><span class="k">Stan zachowania</span><span class="chip" style="background:${e.state.color}"></span><span>${esc(stateLabel(e.state))}</span></div>` +
+    `<div class="row"><span class="k">Stan techniczny</span><span>${t ? esc(TECH_LABEL[t]) : '<i>nieokreślony</i>'}</span></div>` +
+    `<div class="row"><span class="k">Wytyczne</span><span>${r.priorytet ? `<b>P${r.priorytet}</b> ` : ''}${esc(r.tekst)}</span></div>` +
+    (e.categories.length ? `<div class="row"><span class="k">Opis w modelu</span><span>${esc(e.categories.join('; '))}</span></div>` : '');
+  tip.style.display = 'block';
+  const vr = viewer.getBoundingClientRect();
+  let x = ev.clientX - vr.left + 14, y = ev.clientY - vr.top + 14;
+  if (x + tip.offsetWidth > vr.width - 8) x = ev.clientX - vr.left - tip.offsetWidth - 14;
+  if (y + tip.offsetHeight > vr.height - 8) y = ev.clientY - vr.top - tip.offsetHeight - 14;
+  tip.style.left = Math.max(4, x) + 'px'; tip.style.top = Math.max(4, y) + 'px';
+}
+function hideTip() { tip.style.display = 'none'; }
+
+// ---------- eksport / import stanow technicznych ----------
+// "Zapisz plik" pobiera nowa wersje data/stan-techniczny.js (do podmiany w repozytorium)
+document.getElementById('btnExport').onclick = () => {
+  const body = '/*\n * Wspólny stan techniczny elementów (ID elementu -> \'dobry\' | \'dostateczny\' | \'zly\' | \'awaryjny\').\n' +
+    ' * Plik podmieniany przyciskiem "Zapisz plik" na stronie, a następnie commitowany do repozytorium.\n */\n' +
+    'window.STAN_TECHNICZNY = ' + JSON.stringify(mergedTech(), null, 2) + ';\n';
+  const blob = new Blob([body], { type: 'text/javascript' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'stan-techniczny.js'; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  alert('Pobrano plik stan-techniczny.js.\n\nPodmień nim plik data/stan-techniczny.js w folderze projektu, a potem w GitHub Desktop zrób Commit i Push. ' +
+    'Po przeładowaniu strony zmiany przestaną być oznaczone jako niezapisane.');
+};
+const dirtyInfo = document.getElementById('dirtyInfo');
+function updateDirty() {
+  const n = Object.keys(local).length;
+  dirtyInfo.hidden = !n;
+  dirtyInfo.querySelector('b').textContent = n;
+}
+document.getElementById('btnDiscard').onclick = () => {
+  if (!confirm('Odrzucić niezapisane zmiany stanu technicznego i wrócić do wartości ze wspólnego pliku?')) return;
+  local = {}; saveTech(); els.forEach(refreshRow); renderOrder(); updateDirty(); lastKey = null; applyHighlight();
+};
+const fileIn = document.getElementById('importFile');
+document.getElementById('btnImport').onclick = () => fileIn.click();
+fileIn.onchange = async () => {
+  const f = fileIn.files[0]; fileIn.value = ''; if (!f) return;
+  try {
+    // przyjmuje JSON albo plik stan-techniczny.js
+    const txt = (await f.text()).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*window\.STAN_TECHNICZNY\s*=\s*/, '').replace(/;\s*$/, '');
+    const j = JSON.parse(txt); const src = j.stanTechniczny || j;
+    let n = 0, skip = 0;
+    for (const [id, v] of Object.entries(src)) { if (byId.has(id) && TECH_LABEL[v]) { setTech(id, v); n++; } else skip++; }
+    saveTech(); els.forEach(refreshRow); renderOrder(); updateDirty(); lastKey = null; applyHighlight();
+    const wpis = k => k === 1 ? 'wpis' : (k % 10 >= 2 && k % 10 <= 4 && (k % 100 < 12 || k % 100 > 14)) ? 'wpisy' : 'wpisów';
+    alert(`Wczytano ${n} ${wpis(n)}` + (skip ? `, pominięto ${skip} (nieznane ID lub wartość)` : '') + '.');
+  } catch (err) { alert('Nie udało się wczytać pliku: ' + err.message); }
+};
+
+// ---------- okna: reguly i uwagi ----------
+document.querySelectorAll('dialog [data-close]').forEach(b => b.onclick = () => b.closest('dialog').close());
+document.querySelectorAll('dialog').forEach(d => d.addEventListener('click', ev => { if (ev.target === d) d.close(); }));
+document.getElementById('btnRules').onclick = () => {
+  const zTxt = r => !('z' in r) ? 'dowolny' : r.z === null ? 'brak oceny' : r.z[0] === r.z[1] ? String(r.z[0]) : `${r.z[0]}–${r.z[1]}`;
+  const tTxt = r => !('t' in r) ? 'dowolny' : r.t.map(x => x === null ? 'nieokreślony' : TECH_LABEL[x]).join(', ');
+  document.getElementById('rulesBody').innerHTML =
+    `<p>Wytyczne wyznaczane są automatycznie: reguły sprawdzane są po kolei, obowiązuje <b>pierwsza spełniona</b>. Reguły edytuje się w pliku <code>js/reguly-wytycznych.js</code>.</p>` +
+    `<table><thead><tr><th>#</th><th>Stan zachowania (ocena)</th><th>Stan techniczny</th><th>Wytyczne</th><th>Priorytet</th><th>Elementów</th></tr></thead><tbody>` +
+    RULES.map((r, i) => `<tr><td>${i + 1}</td><td>${zTxt(r)}</td><td>${tTxt(r)}</td><td>${esc(r.tekst)}</td><td>${r.priorytet ? 'P' + r.priorytet : '—'}</td><td>${els.filter(e => ruleFor(e) === r).length}</td></tr>`).join('') +
+    `</tbody></table>`;
+  document.getElementById('dlgRules').showModal();
+};
+document.getElementById('btnNotes').onclick = () => {
+  const li = a => a.length ? '<ul>' + a.map(x => `<li>${x}</li>`).join('') + '</ul>' : '<p>—</p>';
+  const auto = els.filter(e => e.autoId);
+  const unnamed = els.filter(e => e.unnamed);
+  const split = els.filter(e => e.split);
+  const mism = [];
+  for (const e of els) for (const c of e.categories) {
+    const m = c.match(/\((\d+)\/10\)\s*$/);
+    if (m && e.state.grade && +m[1] !== e.state.grade) mism.push(`<b>${esc(e.id)}</b>: warstwa „${esc(stateLabel(e.state))}”, w nazwie obiektu „${esc(c)}”`);
+  }
+  document.getElementById('notesBody').innerHTML =
+    `<p>Źródło: <code>${esc(D.source)}</code>. Elementy interaktywne to obiekty z warstw <code>Stan zachowania::*</code> (${els.length}). ` +
+    `Geometria z warstw <code>Oranzeria::*</code> (duplikat, w Rhino ukryta) służy tylko do kolorów w trybie „Materiał”; warstwy <code>Skan</code> i <code>Elewacje - dokumentacja</code> nie są wyświetlane.</p>` +
+    `<h3>Elementy bez bloku – ID nadane automatycznie (${auto.length})</h3><p>Według nazwy obiektu (część przed „|”); gdy nazwa się powtarza – kolejny numer wg położenia wzdłuż elewacji.</p>${li(auto.map(e => esc(e.id) + (e.unnamed ? ' <i>(obiekt bez nazwy – nazwa wg elementu, w którym leży)</i>' : '')))}` +
+    `<h3>Bloki z członkami na różnych warstwach stanu – podzielone na wiersze (${split.length})</h3>${li(split.map(e => `${esc(e.id)} – ${esc(stateLabel(e.state))} (${e.partCount} obiekt/y)`))}` +
+    `<h3>Niezgodność oceny w nazwie obiektu z warstwą (${mism.length})</h3><p>Opis „(x/10)” w nazwie obiektu różni się od warstwy, na której obiekt leży. Tabela przyjmuje stan z <b>warstwy</b>.</p>${li(mism)}` +
+    `<h3>Inne</h3>${li(['Blok „Stan - Impost”: jeden obiekt leży na warstwie „Ocena 10 - ruina / utrata”, ale ma kolor „z rodzica” (w Rhino wyświetla się jak 07). Przyjęto stan z warstwy (10) → wiersz <b>Impost.2</b>.',
+      'Obiekty bez nazwy: ' + (unnamed.map(e => esc(e.id)).join(', ') || '—') + '.'])}`;
+  document.getElementById('dlgNotes').showModal();
+};
+
+// ---------- start ----------
+buildRows();
+updateDirty();
+document.getElementById('loading').remove();
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+window.__app = { els, byId, setHover, pin, ruleFor, camera, controls, frame, VIEWS };
+</script>
+</body>
+</html>

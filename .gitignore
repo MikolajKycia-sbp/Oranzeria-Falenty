@@ -1,0 +1,18 @@
+# Za duże dla GitHuba (limit 100 MB) - trzymane na wspólnym dysku
+*.3dm
+*.3dmbak
+*.rhl
+*.pdf
+
+# Zdjęcia z wizji lokalnej (widoczne osoby; strona ich nie używa)
+Wizja lokalna/
+
+# Pliki robocze narzędzi
+.claude/
+__pycache__/
+*.pyc
+
+# System
+Thumbs.db
+desktop.ini
+.DS_Store
