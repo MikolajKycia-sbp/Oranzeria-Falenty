@@ -609,8 +609,7 @@ renderer.domElement.addEventListener('pointermove', ev => {
   if (!e) { if (modelHoverId) { modelHoverId = null; setHover(null); } hideTip(); return; }
   if (e.id !== modelHoverId) {
     modelHoverId = e.id;
-    setHover(new Set([e.id]), false);
-    scrollToRow(e.id, false);
+    setHover(new Set([e.id]), false); // tylko podswietlenie - tabela przewija sie dopiero po kliknieciu
   }
   showTip(e, ev);
 });
@@ -620,19 +619,18 @@ renderer.domElement.addEventListener('pointerup', ev => {
   if (!downAt || Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) > 4) return;
   const e = pick(ev);
   pin(e ? new Set([e.id]) : null, false);
-  if (e) scrollToRow(e.id, true);
+  if (e) scrollToRow(e.id);
 });
-// przewija tylko kontener tabeli (nie cala strone)
+// przewija tylko kontener tabeli (nie cala strone) tak, by wiersz byl na srodku
 const tableWrap = document.querySelector('.tablewrap');
-function scrollToRow(id, center) {
-  const tr = rowById.get(id); if (!tr || tr.hidden) return;
+function scrollToRow(id) {
+  const tr = rowById.get(id); if (!tr) return;
+  if (tr.hidden) { // wiersz ukryty przez wyszukiwarke - czyscimy filtr, zeby go pokazac
+    const f = document.getElementById('filter'); f.value = ''; filterText = ''; renderOrder();
+  }
   const head = tableWrap.querySelector('thead').offsetHeight;
-  const top = tr.offsetTop, bottom = top + tr.offsetHeight, view = tableWrap.clientHeight;
-  let target = null;
-  if (center) target = top - head - (view - head - tr.offsetHeight) / 2;
-  else if (top - head < tableWrap.scrollTop) target = top - head;
-  else if (bottom > tableWrap.scrollTop + view) target = bottom - view;
-  if (target !== null) tableWrap.scrollTo({ top: Math.max(0, target), behavior: center ? 'smooth' : 'auto' });
+  const target = tr.offsetTop - head - (tableWrap.clientHeight - head - tr.offsetHeight) / 2;
+  tableWrap.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
 }
 addEventListener('keydown', ev => { if (ev.key === 'Escape' && !document.querySelector('dialog[open]')) pin(null); });
 function showTip(e, ev) {
