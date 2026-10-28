@@ -8,6 +8,7 @@ Otwórz `index.html` w przeglądarce (Chrome / Edge / Firefox). Potrzebny jest i
 |---|---|
 | `index.html` | strona: model 3D (lewa) + tabela (prawa); kolory modelu wg stanu zachowania, stanu technicznego lub materiału |
 | `data/model-data.js` | geometria i elementy wyeksportowane z Rhino (**generowany**) |
+| `data/id-rejestr.json` | stałe ID elementów – który obiekt Rhino ma które ID (**generowany**, commitować razem z modelem) |
 | `data/oceny.js` | wspólne oceny: zmiany stanu zachowania i stan techniczny (podmieniany przyciskiem „Zapisz plik”) |
 | `js/skala.js` | skala ocen 1–5 (nazwy, kolory) i przeliczenie warstw Rhino 1–10 → 1–5 – do edycji |
 | `js/reguly-wytycznych.js` | reguły wyznaczania wytycznych – do edycji |
@@ -21,8 +22,11 @@ Otwórz `index.html` w przeglądarce (Chrome / Edge / Firefox). Potrzebny jest i
   `.3dm` pozostaje bez zmian.
 - **ID elementu** = nazwa bloku bez przedrostka `Stan - `. Obiekty bez bloku dostają ID z nazwy
   obiektu (część przed `|`), a bez nazwy – z elementu warstwy `Oranzeria::*`, w którym leżą;
-  powtórzenia są numerowane `.1`, `.2`… wzdłuż elewacji. Blok, którego części leżą na różnych
-  warstwach stanu, dzielony jest na wiersze `.1`, `.2`…
+  powtórzenia są numerowane `.1`, `.2`… Blok, którego części leżą na różnych warstwach stanu,
+  dzielony jest na wiersze `.1`, `.2`…
+- **ID są stałe** (`data/id-rejestr.json`): po zmianie modelu istniejące elementy zachowują ID,
+  nowe (np. po podziale) dostają kolejny wolny numer, a numery usuniętych nie wracają. Przy podziale
+  w Rhino nowe części mają nowe ID – ich oceny trzeba wpisać od nowa.
 - **Skala ocen** (oba stany): 1 – bardzo dobry … 5 – krytyczny / ruina albo „Brak oceny”
   (`js/skala.js`). Warstwy w Rhino mają skalę 1–10 – strona przelicza je parami:
   1–2 → 1, 3–4 → 2, 5–6 → 3, 7–8 → 4, 9–10 → 5.
@@ -47,4 +51,5 @@ pip install rhino3dm
 python tools/export_model.py oranzeria-waloryzacja.3dm data/model-data.js
 ```
 
+Eksport kończy się raportem: nowe i usunięte elementy oraz oceny przypisane do ID, których już nie ma.
 Obiekty muszą mieć zapisane siatki renderujące (zapis z Rhino z widokiem cieniowanym – domyślnie tak jest).

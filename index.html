@@ -206,17 +206,19 @@ document.getElementById('srcinfo').textContent = 'waloryzacja – model 3D (' + 
 
 // oceny: wspolny plik data/oceny.js + niezapisane zmiany tej przegladarki.
 // local.t / local.z: ID -> klucz oceny ('' = Brak oceny). Wpis lokalny znika, gdy zgadza sie z plikiem.
-function readOceny(src, old) {
+const orphanIds = new Set(); // oceny z data/oceny.js dla ID, ktorych nie ma w modelu (np. po usunieciu elementu)
+function readOceny(src, old, collectOrphans) {
   const out = {};
   for (const [id, v] of Object.entries(src || {})) {
     const k = old ? fromOld(v) : (isScaleKey(v) ? v : null);
     if (k !== null && byId.has(id)) out[id] = k;
+    else if (collectOrphans && !byId.has(id)) orphanIds.add(id);
   }
   return out;
 }
 const sharedFile = window.OCENY || {};
 const sharedOld = sharedFile.skala !== 5; // plik zapisany jeszcze w skali 1-10
-const shared = { t: readOceny(sharedFile.stanTechniczny, sharedOld), z: readOceny(sharedFile.stanZachowania, sharedOld) };
+const shared = { t: readOceny(sharedFile.stanTechniczny, sharedOld, true), z: readOceny(sharedFile.stanZachowania, sharedOld, true) };
 let local = { t: {}, z: {} };
 try {
   const raw = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
@@ -832,7 +834,8 @@ document.getElementById('btnNotes').onclick = () => {
   document.getElementById('notesBody').innerHTML =
     `<p>Źródło: <code>${esc(D.source)}</code>. Elementy interaktywne to obiekty z warstw <code>Stan zachowania::*</code> (${els.length}). ` +
     `Geometria z warstw <code>Oranzeria::*</code> (duplikat, w Rhino ukryta) służy tylko do kolorów w trybie „Materiał”; warstwy <code>Skan</code> i <code>Elewacje - dokumentacja</code> nie są wyświetlane.</p>` +
-    `<h3>Elementy bez bloku – ID nadane automatycznie (${auto.length})</h3><p>Według nazwy obiektu (część przed „|”); gdy nazwa się powtarza – kolejny numer wg położenia wzdłuż elewacji.</p>${li(auto.map(e => esc(e.id) + (e.unnamed ? ' <i>(obiekt bez nazwy – nazwa wg elementu, w którym leży)</i>' : '')))}` +
+    (orphanIds.size ? `<h3>Oceny dla elementów, których nie ma już w modelu (${orphanIds.size})</h3><p>Są w <code>data/oceny.js</code>, ale model nie ma elementu o tym ID (np. został usunięty albo podzielony). Nie są wyświetlane; przy następnym „Zapisz plik” znikną z pliku.</p>${li([...orphanIds].sort(cmpNat).map(esc))}` : '') +
+    `<h3>Elementy bez bloku – ID nadane automatycznie (${auto.length})</h3><p>Według nazwy obiektu (część przed „|”). Gdy nazwa się powtarza – numer .1, .2…; ID są stałe (<code>data/id-rejestr.json</code>): istniejące elementy je zachowują, nowe dostają kolejny wolny numer.</p>${li(auto.map(e => esc(e.id) + (e.unnamed ? ' <i>(obiekt bez nazwy – nazwa wg elementu, w którym leży)</i>' : '')))}` +
     `<h3>Bloki z członkami na różnych warstwach stanu – podzielone na wiersze (${split.length})</h3>${li(split.map(e => `${esc(e.id)} – ${esc(layerLabel(e.layer))} (${e.partCount} obiekt/y)`))}` +
     `<h3>Niezgodność oceny w nazwie obiektu z warstwą (${mism.length})</h3><p>Opis „(x/10)” w nazwie obiektu różni się od warstwy, na której obiekt leży. Jako wartość początkową tabela przyjmuje stan z <b>warstwy</b>.</p>${li(mism)}` +
     `<h3>Inne</h3>${li(['Blok „Stan - Impost”: jeden obiekt leży na warstwie „Ocena 10 - ruina / utrata”, ale ma kolor „z rodzica” (w Rhino wyświetla się jak 07). Przyjęto stan z warstwy (10) → wiersz <b>Impost.2</b>.',

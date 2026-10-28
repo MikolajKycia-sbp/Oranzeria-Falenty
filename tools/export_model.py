@@ -10,6 +10,11 @@ Elementy interaktywne = obiekty z warstw "Stan zachowania::*":
     z sufiksem .1, .2 ... gdy nazwa sie powtarza.
 Gdy czlonkowie jednego bloku leza na roznych warstwach stanu, blok dzielony jest
 na wiersze <nazwa>.1, <nazwa>.2 ... (po jednym na kazdy stan).
+
+ID sa stale: data/id-rejestr.json pamieta ID kazdego obiektu (GUID z Rhino) i kazdej czesci
+bloku. Istniejace elementy zachowuja ID, nowe dostaja kolejny wolny numer, a numery
+usunietych elementow nie wracaja. Na koncu eksport wypisuje raport: nowe i usuniete ID
+oraz oceny z data/oceny.js przypisane do ID, ktorych juz nie ma.
 """
 import sys, json, base64, re, struct
 import rhino3dm as r
@@ -164,7 +169,8 @@ for o in f.Objects:
             groups.setdefault(st, []).append((mo.Geometry, g.Xform, nm, cat))
         for st, parts in groups.items():
             raw.append({'base': bname, 'auto': False, 'block': d.Name, 'state': st,
-                        'parts': parts, 'split': len(groups) > 1})
+                        'parts': parts, 'split': len(groups) > 1,
+                        'key': 'blok:%s|%s' % (d.Name, st)})
     elif isinstance(g, (r.Brep, r.Extrusion, r.Mesh)):
         nm, cat = split_name(a.Name)
         auto = False
@@ -173,31 +179,87 @@ for o in f.Objects:
             nm = h[1] if h else 'Element'
             auto = True
         raw.append({'base': nm, 'auto': True, 'block': None, 'state': lp,
-                    'parts': [(g, None, nm if not auto else '', cat)], 'split': False, 'unnamed': auto})
+                    'parts': [(g, None, nm if not auto else '', cat)], 'split': False, 'unnamed': auto,
+                    'key': 'obiekt:%s' % a.Id})
 
 def sort_key(e):
     g, xf = e['parts'][0][0], e['parts'][0][1]
     k = bbox_key(g, xf)
     return (k[0], k[2], k[1])
 
-# ID: bloki -> nazwa bloku (+ .n przy podziale); pozostale -> nazwa (+ .n gdy powtorzona)
+# ---- ID: bloki -> nazwa bloku (+ .n przy podziale); pozostale -> nazwa (+ .n gdy powtorzona) ----
+# Stale ID: rejestr data/id-rejestr.json pamieta, jakie ID dostal dany obiekt (GUID z Rhino)
+# albo dana czesc bloku (blok + warstwa stanu). Istniejace elementy zachowuja ID, nowe dostaja
+# kolejny wolny numer. Numery usunietych elementow nie sa uzywane ponownie (zeby oceny zapisane
+# dla starego ID nie trafily na inny element).
+import os
 from collections import defaultdict
+data_dir = os.path.dirname(os.path.abspath(out_path))
+reg_path = os.path.join(data_dir, 'id-rejestr.json')
+registry = {}
+if os.path.exists(reg_path):
+    registry = json.load(open(reg_path, encoding='utf-8')).get('elementy', {})
+ever_used = set(registry.values())
+
+def belongs(id_, base):
+    """czy ID nalezy do nazwy bazowej: 'base' albo 'base.N'"""
+    return id_ == base or (id_.startswith(base + '.') and id_[len(base) + 1:].isdigit())
+
+def used_numbers(base, taken):
+    nums = set()
+    for id_ in taken:
+        if id_ == base: nums.add(1)            # ID bez numeru zajmuje miejsce nr 1
+        elif belongs(id_, base): nums.add(int(id_[len(base) + 1:]))
+    return nums
+
+assigned = set()
 grp = defaultdict(list)
 for e in raw:
     grp[(e['block'] is not None, e['base'])].append(e)
-for (is_block, base), lst in grp.items():
+for (is_block, base), lst in sorted(grp.items(), key=lambda kv: kv[0][1]):
     if is_block:
         lst.sort(key=lambda e: state_by_layer[e['state']]['grade'] or 99)
     else:
         lst.sort(key=sort_key)
-    if len(lst) == 1:
-        lst[0]['id'] = base
+    new = []
+    for e in lst:   # elementy znane z rejestru zachowuja ID (o ile nazwa bazowa sie nie zmienila)
+        reg = registry.get(e['key'])
+        if reg and belongs(reg, base) and reg not in assigned:
+            e['id'] = reg; e['nowy'] = False; assigned.add(reg)
+        else:
+            new.append(e)
+    taken = ever_used | assigned
+    if not new:
+        continue
+    if len(lst) == 1 and not used_numbers(base, taken):
+        new[0]['id'] = base                    # jedyny element o tej nazwie - bez numeru
     else:
-        for n, e in enumerate(lst, 1):
+        nums = used_numbers(base, taken)
+        n = 0
+        for e in new:
+            n += 1
+            while n in nums: n += 1
             e['id'] = '%s.%d' % (base, n)
+    for e in new:
+        e['nowy'] = bool(registry)               # przy pierwszym utworzeniu rejestru nic nie jest "nowe"
+        assigned.add(e['id'])
 
 ids = [e['id'] for e in raw]
 assert len(ids) == len(set(ids)), 'Zduplikowane ID'
+
+# elementy usuniete od poprzedniego eksportu (porownanie z dotychczasowym plikiem danych)
+prev_ids = set()
+if os.path.exists(out_path):
+    t = open(out_path, encoding='utf-8').read()
+    prev_ids = set(re.findall(r'"id":"((?:[^"\\]|\\.)*)"', t))
+removed = sorted(prev_ids - set(ids))
+# zapis rejestru (wpisy usunietych elementow zostaja, zeby ich numery nie wrocily)
+registry.update({e['key']: e['id'] for e in raw})
+with open(reg_path, 'w', encoding='utf-8') as fo:
+    json.dump({'opis': 'Stale ID elementow (tools/export_model.py). Klucz: obiekt:<GUID z Rhino> '
+                       'albo blok:<nazwa bloku>|<warstwa stanu>. Nie edytowac recznie.',
+               'elementy': dict(sorted(registry.items(), key=lambda kv: kv[1]))},
+              fo, ensure_ascii=False, indent=1)
 
 # ---- geometria ----
 positions, indices, colors = [], [], []
@@ -253,3 +315,18 @@ with open(out_path, 'w', encoding='utf-8') as fo:
 print('elements', len(elements), 'verts', len(positions) // 3, 'tris', len(indices) // 3)
 for e in elements:
     print('%-40s %-34s %-6s parts=%d %s' % (e['id'], e['stateKey'], e['source'], e['partCount'], '; '.join(e['categories'])[:70]))
+
+# ---- raport zmian ID ----
+print('\n=== RAPORT ID ===')
+new_ids = sorted(e['id'] for e in raw if e.get('nowy'))
+print('Nowe elementy (%d): %s' % (len(new_ids), ', '.join(new_ids) or '-'))
+print('Usuniete elementy (%d): %s' % (len(removed), ', '.join(removed) or '-'))
+oceny_path = os.path.join(data_dir, 'oceny.js')
+if os.path.exists(oceny_path):
+    t = open(oceny_path, encoding='utf-8').read()
+    try:
+        oc = json.loads(t[t.index('{', t.index('window.OCENY')): t.rstrip().rindex(';')])
+        orphans = sorted({i for sect in ('stanZachowania', 'stanTechniczny') for i in oc.get(sect, {}) if i not in set(ids)})
+        print('Oceny w data/oceny.js dla ID, ktorych nie ma w modelu (%d): %s' % (len(orphans), ', '.join(orphans) or '-'))
+    except Exception as ex:
+        print('Nie udalo sie odczytac data/oceny.js:', ex)
