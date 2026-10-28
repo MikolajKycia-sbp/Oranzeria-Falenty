@@ -23,7 +23,7 @@ window.OCENY = {
     "Brama - korpus": "3",
     "Drzwi SE": "2",
     "Mur z blankami": "4",
-    "Sciana SE.2": "5",
+    "Sciana SE.3": "5",
     "Wieza 1a.1": "3",
     "Wieza 1a.2": "2",
     "Wieza 1b.1": "3",
