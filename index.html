@@ -57,7 +57,10 @@
   .dirty-info[hidden] { display: none; }
   .dirty-info code { background: #fbe7c4; padding: 0 3px; border-radius: 3px; }
   .dirty-info .btn { margin-left: auto; padding: 2px 8px; }
-  tbody td.c-st.dirty { box-shadow: inset 3px 0 0 #e8a33a; }
+  tbody td.c-st.dirty, tbody td.c-sz.dirty { box-shadow: inset 3px 0 0 #e8a33a; }
+  tbody td .sz select { flex: 1; min-width: 0; }
+  tbody td .model-note { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+  tbody td .model-note:empty { display: none; }
   .tablewrap { flex: 1; overflow: auto; min-height: 0; }
   table { border-collapse: collapse; width: 100%; table-layout: fixed; }
   thead th { position: sticky; top: 0; background: #f7f5f1; z-index: 1; text-align: left; font-weight: 600; padding: 7px 8px; border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -131,10 +134,10 @@
     <div class="tablebar">
       <input type="search" id="filter" placeholder="Szukaj (ID, stan, wytyczne)…">
       <span class="count" id="count"></span>
-      <button class="btn" id="btnExport" title="Pobierz nową wersję wspólnego pliku data/stan-techniczny.js">Zapisz plik</button>
-      <button class="btn" id="btnImport" title="Wczytaj stany techniczne z pliku (.js lub .json)">Import</button>
+      <button class="btn" id="btnExport" title="Pobierz nową wersję wspólnego pliku data/oceny.js">Zapisz plik</button>
+      <button class="btn" id="btnImport" title="Wczytaj oceny z pliku (.js lub .json)">Import</button>
       <input type="file" id="importFile" accept=".js,.json,application/json,text/javascript" hidden>
-      <span class="dirty-info" id="dirtyInfo" hidden>Niezapisane zmiany: <b>0</b> – kliknij „Zapisz plik” i podmień <code>data/stan-techniczny.js</code>.
+      <span class="dirty-info" id="dirtyInfo" hidden>Niezapisane zmiany: <b>0</b> – kliknij „Zapisz plik” i podmień <code>data/oceny.js</code>.
         <button class="btn" id="btnDiscard">Odrzuć</button></span>
     </div>
     <div class="tablewrap">
@@ -156,7 +159,7 @@
 
 <script src="js/reguly-wytycznych.js"></script>
 <script src="data/model-data.js"></script>
-<script src="data/stan-techniczny.js"></script>
+<script src="data/oceny.js"></script>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -169,28 +172,52 @@ if (!D || !window.REGULY_WYTYCZNYCH) {
 const RULES = window.REGULY_WYTYCZNYCH;
 const TECH = window.STANY_TECHNICZNE;
 const TECH_LABEL = Object.fromEntries(TECH.map(t => [t.key, t.label]));
-const STORE_KEY = 'falenty-oranzeria:stan-techniczny-zmiany';
+const STORE_KEY = 'falenty-oranzeria:oceny-zmiany';
+const OLD_STORE_KEY = 'falenty-oranzeria:stan-techniczny-zmiany';
 
 // ---------- dane ----------
 const stateByKey = Object.fromEntries(D.states.map(s => [s.key, s]));
+// stany do wyboru: oceny 01-10 i "Brak oceny" (bez warstw pomocniczych, np. "Opisy")
+const STATE_CHOICES = D.states.filter(s => s.grade !== null || s.key === 'Brak oceny');
 const cmpNat = (a, b) => a.localeCompare(b, 'pl', { numeric: true, sensitivity: 'base' });
-const els = D.elements.map(e => ({ ...e, state: stateByKey[e.stateKey] })).sort((a, b) => cmpNat(a.id, b.id));
+const els = D.elements.map(e => ({ ...e, modelState: stateByKey[e.stateKey], state: stateByKey[e.stateKey] })).sort((a, b) => cmpNat(a.id, b.id));
 els.forEach((e, i) => e.idx = i);
 const byId = new Map(els.map(e => [e.id, e]));
 document.getElementById('srcinfo').textContent = 'waloryzacja – model 3D (' + D.source + ')';
 
-// stan techniczny: wspolny plik data/stan-techniczny.js + niezapisane zmiany tej przegladarki
-// (local: ID -> wartosc lub '' = wyczyszczone; wpis znika, gdy zgadza sie z plikiem)
-const shared = window.STAN_TECHNICZNY || {};
-let local = {};
-try { local = JSON.parse(localStorage.getItem(STORE_KEY) || '{}') || {}; } catch (_) { local = {}; }
-for (const id of Object.keys(local)) if (!byId.has(id) || local[id] === (shared[id] || '')) delete local[id];
-const saveTech = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(local)); } catch (_) {} };
-saveTech();
-const techOf = e => { const v = e.id in local ? local[e.id] : shared[e.id]; return TECH_LABEL[v] ? v : null; };
-const isDirty = e => e.id in local;
-function setTech(id, v) { if (v === (shared[id] || '')) delete local[id]; else local[id] = v; }
-function mergedTech() { const o = {}; for (const e of els) { const t = techOf(e); if (t) o[e.id] = t; } return o; }
+// oceny: wspolny plik data/oceny.js + niezapisane zmiany tej przegladarki.
+// local.t: ID -> stan techniczny lub '' (wyczyszczony); local.z: ID -> klucz stanu zachowania.
+// Wpis lokalny znika, gdy zgadza sie z plikiem.
+const sharedFile = window.OCENY || {};
+const shared = { t: sharedFile.stanTechniczny || {}, z: sharedFile.stanZachowania || {} };
+for (const id of Object.keys(shared.z)) if (!stateByKey[shared.z[id]]) delete shared.z[id];
+let local = { t: {}, z: {} };
+try {
+  const raw = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+  if (raw) local = { t: raw.t || {}, z: raw.z || {} };
+  else local.t = JSON.parse(localStorage.getItem(OLD_STORE_KEY) || '{}') || {};
+  localStorage.removeItem(OLD_STORE_KEY);
+} catch (_) {}
+const sharedT = id => shared.t[id] || '';
+const sharedZ = id => shared.z[id] || byId.get(id).modelState.key;
+for (const id of Object.keys(local.t)) if (!byId.has(id) || local.t[id] === sharedT(id)) delete local.t[id];
+for (const id of Object.keys(local.z)) if (!byId.has(id) || !stateByKey[local.z[id]] || local.z[id] === sharedZ(id)) delete local.z[id];
+const saveLocal = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(local)); } catch (_) {} };
+saveLocal();
+const techOf = e => { const v = e.id in local.t ? local.t[e.id] : shared.t[e.id]; return TECH_LABEL[v] ? v : null; };
+const zKeyOf = e => e.id in local.z ? local.z[e.id] : sharedZ(e.id);
+const dirtyCount = () => Object.keys(local.t).length + Object.keys(local.z).length;
+function setTech(id, v) { if (v === sharedT(id)) delete local.t[id]; else local.t[id] = v; }
+function setZach(id, key) { if (key === sharedZ(id)) delete local.z[id]; else local.z[id] = key; syncState(byId.get(id)); }
+// zawartosc wspolnego pliku: stan zachowania tylko tam, gdzie rozni sie od modelu
+function mergedOceny() {
+  const o = { stanZachowania: {}, stanTechniczny: {} };
+  for (const e of els) {
+    if (e.state !== e.modelState) o.stanZachowania[e.id] = e.state.key;
+    const t = techOf(e); if (t) o.stanTechniczny[e.id] = t;
+  }
+  return o;
+}
 
 function ruleFor(e) {
   const z = e.state.grade, t = techOf(e);
@@ -221,9 +248,7 @@ const nV = positions.length / 3;
 const stateCol = new Float32Array(nV * 3), matCol = new Float32Array(nV * 3);
 const tmp = new THREE.Color();
 for (const e of els) {
-  tmp.set(e.state.color); // Color.set('#hex') konwertuje juz sRGB -> liniowe
   for (let v = e.vStart; v < e.vStart + e.vCount; v++) {
-    stateCol.set([tmp.r, tmp.g, tmp.b], v * 3);
     const c = new THREE.Color().setRGB(matRGB[v * 3] / 255, matRGB[v * 3 + 1] / 255, matRGB[v * 3 + 2] / 255, THREE.SRGBColorSpace);
     matCol.set([c.r, c.g, c.b], v * 3);
   }
@@ -231,6 +256,14 @@ for (const e of els) {
 const posAttr = new THREE.BufferAttribute(positions, 3);
 const stateAttr = new THREE.BufferAttribute(stateCol, 3);
 const matAttr = new THREE.BufferAttribute(matCol, 3);
+// ustawia biezacy stan zachowania elementu i jego kolor w modelu
+function syncState(e) {
+  e.state = stateByKey[zKeyOf(e)];
+  tmp.set(e.state.color); // Color.set('#hex') konwertuje juz sRGB -> liniowe
+  for (let v = e.vStart; v < e.vStart + e.vCount; v++) stateCol.set([tmp.r, tmp.g, tmp.b], v * 3);
+  stateAttr.needsUpdate = true;
+}
+els.forEach(syncState);
 
 const baseGeo = new THREE.BufferGeometry();
 baseGeo.setAttribute('position', posAttr);
@@ -380,16 +413,20 @@ btnX.onclick = () => { xray = !xray; btnX.textContent = 'Prześwietlanie: ' + (x
 
 // ---------- legenda ----------
 const legendItems = document.getElementById('legendItems');
-for (const s of D.states) {
-  const n = els.filter(e => e.state === s).length;
-  if (!n) continue;
-  const d = document.createElement('div');
-  d.className = 'item'; d.dataset.state = s.key;
-  d.innerHTML = `<span class="chip" style="background:${s.color}"></span><span>${stateLabel(s)}</span><span class="n">${n}</span>`;
-  d.onmouseenter = () => setHover(new Set(els.filter(e => e.state === s).map(e => e.id)), true);
-  d.onmouseleave = () => setHover(null);
-  legendItems.append(d);
+function buildLegend() {
+  legendItems.textContent = '';
+  for (const s of D.states) {
+    const n = els.filter(e => e.state === s).length;
+    if (!n) continue;
+    const d = document.createElement('div');
+    d.className = 'item'; d.dataset.state = s.key;
+    d.innerHTML = `<span class="chip" style="background:${s.color}"></span><span>${stateLabel(s)}</span><span class="n">${n}</span>`;
+    d.onmouseenter = () => setHover(new Set(els.filter(e => e.state === s).map(e => e.id)), true);
+    d.onmouseleave = () => setHover(null);
+    legendItems.append(d);
+  }
 }
+buildLegend();
 document.getElementById('legendMatItems').innerHTML = (D.materials || []).map(m =>
   `<div class="mat"><span class="chip" style="background:${m.color}"></span>${esc(plText(m.name))}</div>`).join('');
 const legend = document.getElementById('legend'), legendToggle = document.getElementById('legendToggle');
@@ -428,16 +465,22 @@ function buildRows() {
     const sub = e.unnamed ? 'ID nadane automatycznie (obiekt bez nazwy)' : e.autoId ? 'ID nadane automatycznie (brak bloku)' : e.split ? `część bloku „${e.block}”` : '';
     tr.innerHTML =
       `<td class="c-id" data-col="id">${esc(e.id)}${sub ? `<span class="auto">${esc(sub)}</span>` : ''}</td>` +
-      `<td class="c-sz" data-col="sz"><span class="sz"><span class="chip" style="background:${e.state.color}"></span>${esc(stateLabel(e.state))}</span></td>` +
+      `<td class="c-sz" data-col="sz"><span class="sz"><span class="chip"></span></span><span class="model-note"></span></td>` +
       `<td class="c-st" data-col="st"></td>` +
       `<td class="c-wt" data-col="wt"></td>`;
+    const zsel = document.createElement('select');
+    zsel.innerHTML = STATE_CHOICES.map(s => `<option value="${esc(s.key)}">${esc(stateLabel(s))}</option>`).join('');
+    zsel.onchange = () => {
+      setZach(e.id, zsel.value);
+      saveLocal(); refreshRow(e); buildLegend(); renderOrder(); updateDirty(); lastKey = null; applyHighlight();
+    };
+    tr.children[1].firstChild.append(zsel);
     const sel = document.createElement('select');
-    sel.title = 'Stan techniczny (zapisywany w tej przeglądarce)';
+    sel.title = 'Stan techniczny';
     sel.innerHTML = `<option value="">—</option>` + TECH.map(t => `<option value="${t.key}">${t.label}</option>`).join('');
-    sel.value = techOf(e) || '';
     sel.onchange = () => {
       setTech(e.id, sel.value);
-      saveTech(); refreshRow(e); updateDirty(); lastKey = null; applyHighlight();
+      saveLocal(); refreshRow(e); updateDirty(); lastKey = null; applyHighlight();
     };
     tr.children[2].append(sel);
     rowById.set(e.id, tr);
@@ -449,9 +492,21 @@ function buildRows() {
 function refreshRow(e) {
   const tr = rowById.get(e.id), r = ruleFor(e);
   tr.children[3].innerHTML = (r.priorytet ? `<span class="prio p${r.priorytet}" title="Priorytet ${r.priorytet}">P${r.priorytet}</span>` : '') + esc(r.tekst);
-  const sel = tr.children[2].querySelector('select'); if (sel.value !== (techOf(e) || '')) sel.value = techOf(e) || '';
-  tr.children[2].classList.toggle('dirty', isDirty(e));
-  tr.children[2].title = isDirty(e) ? 'Zmiana niezapisana we wspólnym pliku (stan w pliku: ' + (TECH_LABEL[shared[e.id]] || 'nieokreślony') + ')' : '';
+  // stan zachowania
+  const zc = tr.children[1], zsel = zc.querySelector('select');
+  if (zsel.value !== e.state.key) zsel.value = e.state.key;
+  zc.querySelector('.chip').style.background = e.state.color;
+  const changed = e.state !== e.modelState;
+  zc.querySelector('.model-note').textContent = changed ? 'w modelu Rhino: ' + stateLabel(e.modelState) : '';
+  const zDirty = e.id in local.z;
+  zc.classList.toggle('dirty', zDirty);
+  zsel.title = zDirty ? 'Zmiana niezapisana we wspólnym pliku (w pliku: ' + stateLabel(stateByKey[sharedZ(e.id)]) + ')' : 'Stan zachowania';
+  // stan techniczny
+  const tc = tr.children[2], sel = tc.querySelector('select');
+  if (sel.value !== (techOf(e) || '')) sel.value = techOf(e) || '';
+  const tDirty = e.id in local.t;
+  tc.classList.toggle('dirty', tDirty);
+  sel.title = tDirty ? 'Zmiana niezapisana we wspólnym pliku (w pliku: ' + (TECH_LABEL[shared.t[e.id]] || 'nieokreślony') + ')' : 'Stan techniczny';
 }
 function sortValue(e, col) {
   if (col === 'sz') return e.state.grade ?? 99;
@@ -561,7 +616,8 @@ function showTip(e, ev) {
   const r = ruleFor(e), t = techOf(e);
   tip.innerHTML =
     `<div class="id">${esc(e.id)}</div>` +
-    `<div class="row"><span class="k">Stan zachowania</span><span class="chip" style="background:${e.state.color}"></span><span>${esc(stateLabel(e.state))}</span></div>` +
+    `<div class="row"><span class="k">Stan zachowania</span><span class="chip" style="background:${e.state.color}"></span><span>${esc(stateLabel(e.state))}` +
+    (e.state !== e.modelState ? ` <i>(w modelu: ${esc(stateLabel(e.modelState))})</i>` : '') + `</span></div>` +
     `<div class="row"><span class="k">Stan techniczny</span><span>${t ? esc(TECH_LABEL[t]) : '<i>nieokreślony</i>'}</span></div>` +
     `<div class="row"><span class="k">Wytyczne</span><span>${r.priorytet ? `<b>P${r.priorytet}</b> ` : ''}${esc(r.tekst)}</span></div>` +
     (e.categories.length ? `<div class="row"><span class="k">Opis w modelu</span><span>${esc(e.categories.join('; '))}</span></div>` : '');
@@ -574,39 +630,46 @@ function showTip(e, ev) {
 }
 function hideTip() { tip.style.display = 'none'; }
 
-// ---------- eksport / import stanow technicznych ----------
-// "Zapisz plik" pobiera nowa wersje data/stan-techniczny.js (do podmiany w repozytorium)
+// ---------- zapis / import ocen ----------
+function refreshAll() {
+  els.forEach(syncState); els.forEach(refreshRow); buildLegend(); renderOrder(); updateDirty(); lastKey = null; applyHighlight();
+}
+// "Zapisz plik" pobiera nowa wersje data/oceny.js (do podmiany w repozytorium)
 document.getElementById('btnExport').onclick = () => {
-  const body = '/*\n * Wspólny stan techniczny elementów (ID elementu -> \'dobry\' | \'dostateczny\' | \'zly\' | \'awaryjny\').\n' +
+  const body = '/*\n * Wspólne oceny elementów (klucz = ID elementu).\n' +
+    ' *   stanZachowania: zmiany względem warstwy w modelu Rhino, np. "Ocena 07 - zly", "Brak oceny"\n' +
+    ' *   stanTechniczny: \'dobry\' | \'dostateczny\' | \'zly\' | \'awaryjny\'\n' +
     ' * Plik podmieniany przyciskiem "Zapisz plik" na stronie, a następnie commitowany do repozytorium.\n */\n' +
-    'window.STAN_TECHNICZNY = ' + JSON.stringify(mergedTech(), null, 2) + ';\n';
+    'window.OCENY = ' + JSON.stringify(mergedOceny(), null, 2) + ';\n';
   const blob = new Blob([body], { type: 'text/javascript' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'stan-techniczny.js'; a.click();
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'oceny.js'; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  alert('Pobrano plik stan-techniczny.js.\n\nPodmień nim plik data/stan-techniczny.js w folderze projektu, a potem w GitHub Desktop zrób Commit i Push. ' +
+  alert('Pobrano plik oceny.js.\n\nPodmień nim plik data/oceny.js w folderze projektu, a potem w GitHub Desktop zrób Commit i Push. ' +
     'Po przeładowaniu strony zmiany przestaną być oznaczone jako niezapisane.');
 };
 const dirtyInfo = document.getElementById('dirtyInfo');
 function updateDirty() {
-  const n = Object.keys(local).length;
+  const n = dirtyCount();
   dirtyInfo.hidden = !n;
   dirtyInfo.querySelector('b').textContent = n;
 }
 document.getElementById('btnDiscard').onclick = () => {
-  if (!confirm('Odrzucić niezapisane zmiany stanu technicznego i wrócić do wartości ze wspólnego pliku?')) return;
-  local = {}; saveTech(); els.forEach(refreshRow); renderOrder(); updateDirty(); lastKey = null; applyHighlight();
+  if (!confirm('Odrzucić niezapisane zmiany ocen i wrócić do wartości ze wspólnego pliku?')) return;
+  local = { t: {}, z: {} }; saveLocal(); refreshAll();
 };
 const fileIn = document.getElementById('importFile');
 document.getElementById('btnImport').onclick = () => fileIn.click();
 fileIn.onchange = async () => {
   const f = fileIn.files[0]; fileIn.value = ''; if (!f) return;
   try {
-    // przyjmuje JSON albo plik stan-techniczny.js
-    const txt = (await f.text()).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*window\.STAN_TECHNICZNY\s*=\s*/, '').replace(/;\s*$/, '');
-    const j = JSON.parse(txt); const src = j.stanTechniczny || j;
+    // przyjmuje oceny.js, dawny stan-techniczny.js albo JSON
+    const txt = (await f.text()).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*window\.(OCENY|STAN_TECHNICZNY)\s*=\s*/, '').replace(/;\s*$/, '');
+    const j = JSON.parse(txt);
+    const srcT = j.stanTechniczny || (j.stanZachowania ? {} : j), srcZ = j.stanZachowania || {};
     let n = 0, skip = 0;
-    for (const [id, v] of Object.entries(src)) { if (byId.has(id) && TECH_LABEL[v]) { setTech(id, v); n++; } else skip++; }
-    saveTech(); els.forEach(refreshRow); renderOrder(); updateDirty(); lastKey = null; applyHighlight();
+    for (const [id, v] of Object.entries(srcT)) { if (byId.has(id) && TECH_LABEL[v]) { setTech(id, v); n++; } else skip++; }
+    for (const [id, v] of Object.entries(srcZ)) { if (byId.has(id) && stateByKey[v]) { setZach(id, v); n++; } else skip++; }
+    saveLocal(); refreshAll();
     const wpis = k => k === 1 ? 'wpis' : (k % 10 >= 2 && k % 10 <= 4 && (k % 100 < 12 || k % 100 > 14)) ? 'wpisy' : 'wpisów';
     alert(`Wczytano ${n} ${wpis(n)}` + (skip ? `, pominięto ${skip} (nieznane ID lub wartość)` : '') + '.');
   } catch (err) { alert('Nie udało się wczytać pliku: ' + err.message); }
@@ -630,17 +693,19 @@ document.getElementById('btnNotes').onclick = () => {
   const auto = els.filter(e => e.autoId);
   const unnamed = els.filter(e => e.unnamed);
   const split = els.filter(e => e.split);
+  const changedZ = els.filter(e => e.state !== e.modelState);
   const mism = [];
   for (const e of els) for (const c of e.categories) {
     const m = c.match(/\((\d+)\/10\)\s*$/);
-    if (m && e.state.grade && +m[1] !== e.state.grade) mism.push(`<b>${esc(e.id)}</b>: warstwa „${esc(stateLabel(e.state))}”, w nazwie obiektu „${esc(c)}”`);
+    if (m && e.modelState.grade && +m[1] !== e.modelState.grade) mism.push(`<b>${esc(e.id)}</b>: warstwa „${esc(stateLabel(e.modelState))}”, w nazwie obiektu „${esc(c)}”`);
   }
   document.getElementById('notesBody').innerHTML =
     `<p>Źródło: <code>${esc(D.source)}</code>. Elementy interaktywne to obiekty z warstw <code>Stan zachowania::*</code> (${els.length}). ` +
     `Geometria z warstw <code>Oranzeria::*</code> (duplikat, w Rhino ukryta) służy tylko do kolorów w trybie „Materiał”; warstwy <code>Skan</code> i <code>Elewacje - dokumentacja</code> nie są wyświetlane.</p>` +
     `<h3>Elementy bez bloku – ID nadane automatycznie (${auto.length})</h3><p>Według nazwy obiektu (część przed „|”); gdy nazwa się powtarza – kolejny numer wg położenia wzdłuż elewacji.</p>${li(auto.map(e => esc(e.id) + (e.unnamed ? ' <i>(obiekt bez nazwy – nazwa wg elementu, w którym leży)</i>' : '')))}` +
-    `<h3>Bloki z członkami na różnych warstwach stanu – podzielone na wiersze (${split.length})</h3>${li(split.map(e => `${esc(e.id)} – ${esc(stateLabel(e.state))} (${e.partCount} obiekt/y)`))}` +
+    `<h3>Bloki z członkami na różnych warstwach stanu – podzielone na wiersze (${split.length})</h3>${li(split.map(e => `${esc(e.id)} – ${esc(stateLabel(e.modelState))} (${e.partCount} obiekt/y)`))}` +
     `<h3>Niezgodność oceny w nazwie obiektu z warstwą (${mism.length})</h3><p>Opis „(x/10)” w nazwie obiektu różni się od warstwy, na której obiekt leży. Tabela przyjmuje stan z <b>warstwy</b>.</p>${li(mism)}` +
+    `<h3>Stan zachowania zmieniony na stronie względem modelu (${changedZ.length})</h3><p>Zmiany zapisane w <code>data/oceny.js</code> lub jeszcze niezapisane. Plik <code>.3dm</code> pozostaje bez zmian – przy aktualizacji modelu warto przenieść te oceny na warstwy w Rhino.</p>${li(changedZ.map(e => `<b>${esc(e.id)}</b>: w modelu „${esc(stateLabel(e.modelState))}” → „${esc(stateLabel(e.state))}”` + (e.id in local.z ? ' <i>(niezapisane)</i>' : '')))}` +
     `<h3>Inne</h3>${li(['Blok „Stan - Impost”: jeden obiekt leży na warstwie „Ocena 10 - ruina / utrata”, ale ma kolor „z rodzica” (w Rhino wyświetla się jak 07). Przyjęto stan z warstwy (10) → wiersz <b>Impost.2</b>.',
       'Obiekty bez nazwy: ' + (unnamed.map(e => esc(e.id)).join(', ') || '—') + '.'])}`;
   document.getElementById('dlgNotes').showModal();
