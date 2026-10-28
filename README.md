@@ -15,9 +15,9 @@ Otwórz `index.html` w przeglądarce (Chrome / Edge / Firefox). Potrzebny jest i
 ## Jak strona czyta model
 
 - Elementy = obiekty z warstw `Stan zachowania::*`. Stan zachowania = warstwa obiektu
-  (członek bloku na warstwie `Default` dziedziczy warstwę wstawienia bloku). Można go zmienić
-  w tabeli – wtedy pod listą widać „w modelu Rhino: …”, a element zmienia kolor w modelu.
-  Plik `.3dm` się nie zmienia; lista zmienionych ocen jest w oknie „Uwagi do modelu”.
+  (członek bloku na warstwie `Default` dziedziczy warstwę wstawienia bloku) – to tylko wartość
+  początkowa. Stan zmieniony w tabeli jest ostateczny: element zmienia kolor w modelu, a plik
+  `.3dm` pozostaje bez zmian.
 - **ID elementu** = nazwa bloku bez przedrostka `Stan - `. Obiekty bez bloku dostają ID z nazwy
   obiektu (część przed `|`), a bez nazwy – z elementu warstwy `Oranzeria::*`, w którym leżą;
   powtórzenia są numerowane `.1`, `.2`… wzdłuż elewacji. Blok, którego części leżą na różnych

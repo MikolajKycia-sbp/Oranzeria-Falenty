@@ -59,8 +59,6 @@
   .dirty-info .btn { margin-left: auto; padding: 2px 8px; }
   tbody td.c-st.dirty, tbody td.c-sz.dirty { box-shadow: inset 3px 0 0 #e8a33a; }
   tbody td .sz select { flex: 1; min-width: 0; }
-  tbody td .model-note { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
-  tbody td .model-note:empty { display: none; }
   .tablewrap { flex: 1; overflow: auto; min-height: 0; }
   table { border-collapse: collapse; width: 100%; table-layout: fixed; }
   thead th { position: sticky; top: 0; background: #f7f5f1; z-index: 1; text-align: left; font-weight: 600; padding: 7px 8px; border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -465,7 +463,7 @@ function buildRows() {
     const sub = e.unnamed ? 'ID nadane automatycznie (obiekt bez nazwy)' : e.autoId ? 'ID nadane automatycznie (brak bloku)' : e.split ? `część bloku „${e.block}”` : '';
     tr.innerHTML =
       `<td class="c-id" data-col="id">${esc(e.id)}${sub ? `<span class="auto">${esc(sub)}</span>` : ''}</td>` +
-      `<td class="c-sz" data-col="sz"><span class="sz"><span class="chip"></span></span><span class="model-note"></span></td>` +
+      `<td class="c-sz" data-col="sz"><span class="sz"><span class="chip"></span></span></td>` +
       `<td class="c-st" data-col="st"></td>` +
       `<td class="c-wt" data-col="wt"></td>`;
     const zsel = document.createElement('select');
@@ -496,8 +494,6 @@ function refreshRow(e) {
   const zc = tr.children[1], zsel = zc.querySelector('select');
   if (zsel.value !== e.state.key) zsel.value = e.state.key;
   zc.querySelector('.chip').style.background = e.state.color;
-  const changed = e.state !== e.modelState;
-  zc.querySelector('.model-note').textContent = changed ? 'w modelu Rhino: ' + stateLabel(e.modelState) : '';
   const zDirty = e.id in local.z;
   zc.classList.toggle('dirty', zDirty);
   zsel.title = zDirty ? 'Zmiana niezapisana we wspólnym pliku (w pliku: ' + stateLabel(stateByKey[sharedZ(e.id)]) + ')' : 'Stan zachowania';
@@ -616,8 +612,7 @@ function showTip(e, ev) {
   const r = ruleFor(e), t = techOf(e);
   tip.innerHTML =
     `<div class="id">${esc(e.id)}</div>` +
-    `<div class="row"><span class="k">Stan zachowania</span><span class="chip" style="background:${e.state.color}"></span><span>${esc(stateLabel(e.state))}` +
-    (e.state !== e.modelState ? ` <i>(w modelu: ${esc(stateLabel(e.modelState))})</i>` : '') + `</span></div>` +
+    `<div class="row"><span class="k">Stan zachowania</span><span class="chip" style="background:${e.state.color}"></span><span>${esc(stateLabel(e.state))}</span></div>` +
     `<div class="row"><span class="k">Stan techniczny</span><span>${t ? esc(TECH_LABEL[t]) : '<i>nieokreślony</i>'}</span></div>` +
     `<div class="row"><span class="k">Wytyczne</span><span>${r.priorytet ? `<b>P${r.priorytet}</b> ` : ''}${esc(r.tekst)}</span></div>` +
     (e.categories.length ? `<div class="row"><span class="k">Opis w modelu</span><span>${esc(e.categories.join('; '))}</span></div>` : '');
@@ -693,7 +688,6 @@ document.getElementById('btnNotes').onclick = () => {
   const auto = els.filter(e => e.autoId);
   const unnamed = els.filter(e => e.unnamed);
   const split = els.filter(e => e.split);
-  const changedZ = els.filter(e => e.state !== e.modelState);
   const mism = [];
   for (const e of els) for (const c of e.categories) {
     const m = c.match(/\((\d+)\/10\)\s*$/);
@@ -704,8 +698,7 @@ document.getElementById('btnNotes').onclick = () => {
     `Geometria z warstw <code>Oranzeria::*</code> (duplikat, w Rhino ukryta) służy tylko do kolorów w trybie „Materiał”; warstwy <code>Skan</code> i <code>Elewacje - dokumentacja</code> nie są wyświetlane.</p>` +
     `<h3>Elementy bez bloku – ID nadane automatycznie (${auto.length})</h3><p>Według nazwy obiektu (część przed „|”); gdy nazwa się powtarza – kolejny numer wg położenia wzdłuż elewacji.</p>${li(auto.map(e => esc(e.id) + (e.unnamed ? ' <i>(obiekt bez nazwy – nazwa wg elementu, w którym leży)</i>' : '')))}` +
     `<h3>Bloki z członkami na różnych warstwach stanu – podzielone na wiersze (${split.length})</h3>${li(split.map(e => `${esc(e.id)} – ${esc(stateLabel(e.modelState))} (${e.partCount} obiekt/y)`))}` +
-    `<h3>Niezgodność oceny w nazwie obiektu z warstwą (${mism.length})</h3><p>Opis „(x/10)” w nazwie obiektu różni się od warstwy, na której obiekt leży. Tabela przyjmuje stan z <b>warstwy</b>.</p>${li(mism)}` +
-    `<h3>Stan zachowania zmieniony na stronie względem modelu (${changedZ.length})</h3><p>Zmiany zapisane w <code>data/oceny.js</code> lub jeszcze niezapisane. Plik <code>.3dm</code> pozostaje bez zmian – przy aktualizacji modelu warto przenieść te oceny na warstwy w Rhino.</p>${li(changedZ.map(e => `<b>${esc(e.id)}</b>: w modelu „${esc(stateLabel(e.modelState))}” → „${esc(stateLabel(e.state))}”` + (e.id in local.z ? ' <i>(niezapisane)</i>' : '')))}` +
+    `<h3>Niezgodność oceny w nazwie obiektu z warstwą (${mism.length})</h3><p>Opis „(x/10)” w nazwie obiektu różni się od warstwy, na której obiekt leży. Jako wartość początkową tabela przyjmuje stan z <b>warstwy</b>.</p>${li(mism)}` +
     `<h3>Inne</h3>${li(['Blok „Stan - Impost”: jeden obiekt leży na warstwie „Ocena 10 - ruina / utrata”, ale ma kolor „z rodzica” (w Rhino wyświetla się jak 07). Przyjęto stan z warstwy (10) → wiersz <b>Impost.2</b>.',
       'Obiekty bez nazwy: ' + (unnamed.map(e => esc(e.id)).join(', ') || '—') + '.'])}`;
   document.getElementById('dlgNotes').showModal();
