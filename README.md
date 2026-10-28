@@ -28,14 +28,16 @@ Otwórz `index.html` w przeglądarce (Chrome / Edge / Firefox). Potrzebny jest i
   1–2 → 1, 3–4 → 2, 5–6 → 3, 7–8 → 4, 9–10 → 5.
 - **Stan techniczny** wybiera się w tabeli.
 - **Zapisywanie ocen** (obu stanów) – wartości wspólne dla wszystkich są w `data/oceny.js`.
-  Zmiany wybrane w tabeli zapisują się najpierw tylko w Twojej przeglądarce (pomarańczowy znacznik
-  i pasek „Niezapisane zmiany”). Żeby zobaczyli je inni:
-  1. kliknij **Zapisz plik** – pobierze się nowy `oceny.js`,
-  2. podmień nim `data/oceny.js` w folderze projektu,
-  3. w GitHub Desktop: **Commit** → **Push**.
+  Zmiany wybrane w tabeli są najpierw tylko w Twojej przeglądarce (pomarańczowy znacznik
+  i pasek „Niezapisane zmiany”). Żeby trafiły do projektu:
+  1. kliknij **Zapisz plik** – w Chrome/Edge za pierwszym razem wskaż folder projektu
+     (`Falenty-strona`); przeglądarka go zapamięta i kolejne zapisy idą od razu do `data/oceny.js`
+     (działa też na stronie online). „Folder…” pozwala wskazać inny folder.
+     W innych przeglądarkach plik się pobiera – wtedy podmień nim `data/oceny.js`.
+  2. w GitHub Desktop: **Commit** → **Push**.
 
   Przed edycją zrób **Pull**, żeby mieć najnowszy plik – inaczej nadpiszecie sobie nawzajem zmiany.
-  „Odrzuć” cofa niezapisane zmiany, „Import” wczytuje plik `.js` lub `.json`.
+  „Odrzuć” wraca do ostatnio zapisanych wartości, „Import” wczytuje plik `.js` lub `.json`.
 - **Wytyczne** liczone są z reguł w `js/reguly-wytycznych.js` (obowiązuje pierwsza spełniona).
 
 ## Po zmianie modelu w Rhino

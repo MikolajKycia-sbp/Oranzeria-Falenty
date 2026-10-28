@@ -54,7 +54,9 @@
   .tablebar input[type=search] { flex: 1; min-width: 140px; border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
   .tablebar .count { color: var(--muted); white-space: nowrap; }
   .dirty-info { flex-basis: 100%; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: #fff4e0; border: 1px solid #f0c987; border-radius: 6px; padding: 5px 8px; color: #6b4a12; }
-  .dirty-info[hidden] { display: none; }
+  .dirty-info[hidden], .save-info[hidden] { display: none; }
+  .save-info { flex-basis: 100%; background: #e6f4ea; border: 1px solid #9fd3ae; border-radius: 6px; padding: 5px 8px; color: #1d5a2e; }
+  .save-info code { background: #d2ecd9; padding: 0 3px; border-radius: 3px; }
   .dirty-info code { background: #fbe7c4; padding: 0 3px; border-radius: 3px; }
   .dirty-info .btn { margin-left: auto; padding: 2px 8px; }
   tbody td.c-st.dirty, tbody td.c-sz.dirty { box-shadow: inset 3px 0 0 #e8a33a; }
@@ -133,10 +135,12 @@
     <div class="tablebar">
       <input type="search" id="filter" placeholder="Szukaj (ID, stan, wytyczne)…">
       <span class="count" id="count"></span>
-      <button class="btn" id="btnExport" title="Pobierz nową wersję wspólnego pliku data/oceny.js">Zapisz plik</button>
+      <button class="btn" id="btnExport">Zapisz plik</button>
+      <button class="btn" id="btnFolder" hidden>Folder…</button>
       <button class="btn" id="btnImport" title="Wczytaj oceny z pliku (.js lub .json)">Import</button>
       <input type="file" id="importFile" accept=".js,.json,application/json,text/javascript" hidden>
-      <span class="dirty-info" id="dirtyInfo" hidden>Niezapisane zmiany: <b>0</b> – kliknij „Zapisz plik” i podmień <code>data/oceny.js</code>.
+      <span class="save-info" id="saveInfo" hidden></span>
+      <span class="dirty-info" id="dirtyInfo" hidden>Niezapisane zmiany: <b>0</b> – kliknij „Zapisz plik”.
         <button class="btn" id="btnDiscard">Odrzuć</button></span>
     </div>
     <div class="tablewrap">
@@ -233,7 +237,16 @@ saveLocal();
 const techOf = e => (e.id in local.t ? local.t[e.id] : sharedT(e.id)) || null;
 const techState = e => scaleByKey[techOf(e) || ''];
 const zKeyOf = e => e.id in local.z ? local.z[e.id] : sharedZ(e.id);
-const dirtyCount = () => Object.keys(local.t).length + Object.keys(local.z).length;
+// Stan "zapisany": po zapisie wprost do folderu projektu - to, co zapisano na dysku;
+// wczesniej - wczytany plik data/oceny.js. Wzgledem niego liczone sa niezapisane zmiany.
+// (local w localStorage zostaje wzgledem wczytanego pliku, zeby po przeladowaniu strony online,
+// zanim zmiany trafia na GitHuba, nic nie zginelo.)
+let savedSnap = null; // { t: {id: klucz}, z: {id: klucz} }
+const baseT = id => savedSnap ? (savedSnap.t[id] ?? '') : sharedT(id);
+const baseZ = id => savedSnap ? (savedSnap.z[id] ?? byId.get(id).modelState.key) : sharedZ(id);
+const isDirtyT = e => (techOf(e) || '') !== baseT(e.id);
+const isDirtyZ = e => zKeyOf(e) !== baseZ(e.id);
+const dirtyCount = () => els.reduce((n, e) => n + isDirtyT(e) + isDirtyZ(e), 0);
 function setTech(id, v) { if (v === sharedT(id)) delete local.t[id]; else local.t[id] = v; syncTech(byId.get(id)); }
 function setZach(id, key) { if (key === sharedZ(id)) delete local.z[id]; else local.z[id] = key; syncState(byId.get(id)); }
 // zawartosc wspolnego pliku: stan zachowania tylko tam, gdzie rozni sie od modelu
@@ -545,16 +558,16 @@ function refreshRow(e) {
   const zc = tr.children[1], zsel = zc.querySelector('select');
   if (zsel.value !== e.state.key) zsel.value = e.state.key;
   zc.querySelector('.chip').style.background = e.state.color;
-  const zDirty = e.id in local.z;
+  const zDirty = isDirtyZ(e);
   zc.classList.toggle('dirty', zDirty);
-  zsel.title = zDirty ? 'Zmiana niezapisana we wspólnym pliku (w pliku: ' + stateLabel(scaleByKey[sharedZ(e.id)]) + ')' : 'Stan zachowania';
+  zsel.title = zDirty ? 'Zmiana niezapisana we wspólnym pliku (w pliku: ' + stateLabel(scaleByKey[baseZ(e.id)]) + ')' : 'Stan zachowania';
   // stan techniczny
   const tc = tr.children[2], sel = tc.querySelector('select');
   if (sel.value !== (techOf(e) || '')) sel.value = techOf(e) || '';
   tc.querySelector('.chip').style.background = techState(e).color;
-  const tDirty = e.id in local.t;
+  const tDirty = isDirtyT(e);
   tc.classList.toggle('dirty', tDirty);
-  sel.title = tDirty ? 'Zmiana niezapisana we wspólnym pliku (w pliku: ' + stateLabel(scaleByKey[sharedT(e.id)]) + ')' : 'Stan techniczny';
+  sel.title = tDirty ? 'Zmiana niezapisana we wspólnym pliku (w pliku: ' + stateLabel(scaleByKey[baseT(e.id)]) + ')' : 'Stan techniczny';
 }
 function sortValue(e, col) {
   if (col === 'sz') return e.state.grade ?? 99;
@@ -679,29 +692,99 @@ function hideTip() { tip.style.display = 'none'; }
 function refreshAll() {
   els.forEach(syncState); els.forEach(syncTech); els.forEach(refreshRow); buildLegend(); renderOrder(); updateDirty(); lastKey = null; applyHighlight();
 }
-// "Zapisz plik" pobiera nowa wersje data/oceny.js (do podmiany w repozytorium)
-document.getElementById('btnExport').onclick = () => {
-  const body = '/*\n * Wspólne oceny elementów (klucz = ID elementu).\n' +
+function ocenyFileText(o) {
+  return '/*\n * Wspólne oceny elementów (klucz = ID elementu).\n' +
     ' *   skala: 5 - oceny "1" .. "5" (js/skala.js), "" = Brak oceny\n' +
     ' *   stanZachowania: zmiany względem warstwy w modelu Rhino\n' +
     ' *   stanTechniczny: ocena stanu technicznego\n' +
-    ' * Plik podmieniany przyciskiem "Zapisz plik" na stronie, a następnie commitowany do repozytorium.\n */\n' +
-    'window.OCENY = ' + JSON.stringify(mergedOceny(), null, 2) + ';\n';
-  const blob = new Blob([body], { type: 'text/javascript' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'oceny.js'; a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  alert('Pobrano plik oceny.js.\n\nPodmień nim plik data/oceny.js w folderze projektu, a potem w GitHub Desktop zrób Commit i Push. ' +
-    'Po przeładowaniu strony zmiany przestaną być oznaczone jako niezapisane.');
-};
+    ' * Plik zapisywany przyciskiem "Zapisz plik" na stronie, a następnie commitowany do repozytorium.\n */\n' +
+    'window.OCENY = ' + JSON.stringify(o, null, 2) + ';\n';
+}
+
+// --- zapamietany folder projektu (Chrome/Edge: File System Access API, uchwyt trzymany w IndexedDB) ---
+const canPickFolder = 'showDirectoryPicker' in window;
+function idb(mode, fn) {
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open('falenty-oranzeria', 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
+    rq.onerror = () => rej(rq.error);
+    rq.onsuccess = () => {
+      const tx = rq.result.transaction('kv', mode), r = fn(tx.objectStore('kv'));
+      tx.oncomplete = () => res(r && r.result); tx.onerror = () => rej(tx.error);
+    };
+  });
+}
+const getFolder = () => idb('readonly', s => s.get('folder')).catch(() => null);
+const setFolder = h => idb('readwrite', s => s.put(h, 'folder')).catch(() => {});
+// przyjmuje folder projektu (z podfolderem data) albo sam folder data
+async function ocenyHandleIn(dir) {
+  let data = dir;
+  try { data = await dir.getDirectoryHandle('data'); } catch (_) {}
+  try { await data.getFileHandle('model-data.js'); } catch (_) { return null; }
+  return data.getFileHandle('oceny.js', { create: true });
+}
+async function pickFolder() {
+  const dir = await window.showDirectoryPicker({ id: 'oranzeria-projekt', mode: 'readwrite' });
+  if (!(await ocenyHandleIn(dir))) throw new Error('W wybranym folderze nie ma podfolderu „data” z plikiem model-data.js. Wskaż folder projektu (Falenty-strona).');
+  await setFolder(dir);
+  return dir;
+}
+async function folderWithPermission() {
+  let dir = await getFolder();
+  if (dir && (await dir.queryPermission({ mode: 'readwrite' })) !== 'granted' &&
+      (await dir.requestPermission({ mode: 'readwrite' })) !== 'granted') dir = null;
+  return dir || pickFolder();
+}
+const saveInfo = document.getElementById('saveInfo');
+function showSaveInfo(html) {
+  saveInfo.innerHTML = html; saveInfo.hidden = false;
+  clearTimeout(showSaveInfo.t); showSaveInfo.t = setTimeout(() => saveInfo.hidden = true, 9000);
+}
+function downloadOceny(text) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/javascript' }));
+  a.download = 'oceny.js'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  alert('Pobrano plik oceny.js.\n\nPodmień nim plik data/oceny.js w folderze projektu, a potem w GitHub Desktop zrób Commit i Push.');
+}
+// "Zapisz plik": zapis wprost do data/oceny.js w folderze projektu albo (inne przegladarki) pobranie pliku
+async function saveOceny(chooseFolder) {
+  const o = mergedOceny(), text = ocenyFileText(o);
+  if (!canPickFolder) { downloadOceny(text); return; }
+  try {
+    const dir = chooseFolder ? await pickFolder() : await folderWithPermission();
+    const fh = await ocenyHandleIn(dir);
+    if (!fh) throw new Error('Nie znaleziono pliku data/oceny.js w zapamiętanym folderze – wskaż folder projektu ponownie.');
+    const w = await fh.createWritable(); await w.write(text); await w.close();
+    savedSnap = { t: { ...o.stanTechniczny }, z: { ...o.stanZachowania } };
+    els.forEach(refreshRow); updateDirty(); updateFolderBtn();
+    showSaveInfo(`Zapisano do <code>${esc(dir.name)}/data/oceny.js</code>. Teraz w GitHub Desktop: <b>Commit</b> → <b>Push</b>.`);
+  } catch (err) {
+    if (err && err.name === 'AbortError') return; // anulowano wybor folderu
+    alert('Nie udało się zapisać: ' + err.message);
+  }
+}
+document.getElementById('btnExport').onclick = () => saveOceny(false);
+const btnFolder = document.getElementById('btnFolder');
+btnFolder.hidden = !canPickFolder;
+btnFolder.onclick = () => saveOceny(true);
+async function updateFolderBtn() {
+  if (!canPickFolder) return;
+  const dir = await getFolder();
+  btnFolder.title = dir ? `Zapis do folderu „${dir.name}” – kliknij, żeby wskazać inny folder projektu` : 'Wskaż folder projektu, do którego „Zapisz plik” zapisuje data/oceny.js';
+  document.getElementById('btnExport').title = dir ? `Zapisz oceny do ${dir.name}/data/oceny.js` : 'Zapisz oceny do data/oceny.js (za pierwszym razem wskażesz folder projektu)';
+}
+updateFolderBtn();
+
 const dirtyInfo = document.getElementById('dirtyInfo');
 function updateDirty() {
   const n = dirtyCount();
   dirtyInfo.hidden = !n;
   dirtyInfo.querySelector('b').textContent = n;
 }
+// "Odrzuc" wraca do ostatnio zapisanego stanu (zapisu na dysk albo wczytanego pliku)
 document.getElementById('btnDiscard').onclick = () => {
-  if (!confirm('Odrzucić niezapisane zmiany ocen i wrócić do wartości ze wspólnego pliku?')) return;
-  local = { t: {}, z: {} }; saveLocal(); refreshAll();
+  if (!confirm('Odrzucić niezapisane zmiany ocen i wrócić do ostatnio zapisanych wartości?')) return;
+  for (const e of els) { setTech(e.id, baseT(e.id)); setZach(e.id, baseZ(e.id)); }
+  saveLocal(); refreshAll();
 };
 const fileIn = document.getElementById('importFile');
 document.getElementById('btnImport').onclick = () => fileIn.click();
