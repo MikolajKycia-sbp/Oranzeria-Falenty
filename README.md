@@ -22,7 +22,8 @@ Otwórz `index.html` w przeglądarce (Chrome / Edge / Firefox). Potrzebny jest i
   obiektu (część przed `|`), a bez nazwy – z elementu warstwy `Oranzeria::*`, w którym leżą;
   powtórzenia są numerowane `.1`, `.2`… wzdłuż elewacji. Blok, którego części leżą na różnych
   warstwach stanu, dzielony jest na wiersze `.1`, `.2`…
-- **Stan techniczny** wybiera się w tabeli.
+- **Stan techniczny** wybiera się w tabeli – w tej samej skali co stan zachowania
+  (1 – bardzo dobry … 10 – ruina / utrata, albo „Brak oceny”).
 - **Zapisywanie ocen** (obu stanów) – wartości wspólne dla wszystkich są w `data/oceny.js`.
   Zmiany wybrane w tabeli zapisują się najpierw tylko w Twojej przeglądarce (pomarańczowy znacznik
   i pasek „Niezapisane zmiany”). Żeby zobaczyli je inni:

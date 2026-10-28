@@ -63,7 +63,7 @@
   table { border-collapse: collapse; width: 100%; table-layout: fixed; }
   thead th { position: sticky; top: 0; background: #f7f5f1; z-index: 1; text-align: left; font-weight: 600; padding: 7px 8px; border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   thead th .arrow { color: var(--muted); font-size: 10px; margin-left: 4px; }
-  th.c-id { width: 29%; } th.c-sz { width: 22%; } th.c-st { width: 19%; } th.c-wt { width: 30%; }
+  th.c-id { width: 25%; } th.c-sz { width: 23%; } th.c-st { width: 23%; } th.c-wt { width: 29%; }
   tbody td { padding: 5px 8px; border-bottom: 1px solid #efebe4; vertical-align: top; }
   tbody td.c-id { font-weight: 500; overflow-wrap: anywhere; }
   tbody td.c-id .auto { color: var(--muted); font-weight: 400; font-size: 11px; display: block; }
@@ -155,9 +155,10 @@
 <dialog id="dlgRules"><div class="dh"><h2>Reguły wyznaczania wytycznych</h2><button class="btn" data-close>Zamknij</button></div><div class="db" id="rulesBody"></div></dialog>
 <dialog id="dlgNotes"><div class="dh"><h2>Uwagi do modelu</h2><button class="btn" data-close>Zamknij</button></div><div class="db" id="notesBody"></div></dialog>
 
-<script src="js/reguly-wytycznych.js"></script>
-<script src="data/model-data.js"></script>
-<script src="data/oceny.js"></script>
+<!-- ?v= wymusza pobranie nowej wersji po aktualizacji; zmień numer przy zmianie tych plików -->
+<script src="js/reguly-wytycznych.js?v=3"></script>
+<script src="data/model-data.js?v=3"></script>
+<script src="data/oceny.js?v=3"></script>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -168,14 +169,12 @@ if (!D || !window.REGULY_WYTYCZNYCH) {
   throw new Error('Brak danych modelu');
 }
 const RULES = window.REGULY_WYTYCZNYCH;
-const TECH = window.STANY_TECHNICZNE;
-const TECH_LABEL = Object.fromEntries(TECH.map(t => [t.key, t.label]));
 const STORE_KEY = 'falenty-oranzeria:oceny-zmiany';
 const OLD_STORE_KEY = 'falenty-oranzeria:stan-techniczny-zmiany';
 
 // ---------- dane ----------
 const stateByKey = Object.fromEntries(D.states.map(s => [s.key, s]));
-// stany do wyboru: oceny 01-10 i "Brak oceny" (bez warstw pomocniczych, np. "Opisy")
+// stany do wyboru: oceny 1-10 i "Brak oceny" (bez warstw pomocniczych, np. "Opisy")
 const STATE_CHOICES = D.states.filter(s => s.grade !== null || s.key === 'Brak oceny');
 const cmpNat = (a, b) => a.localeCompare(b, 'pl', { numeric: true, sensitivity: 'base' });
 const els = D.elements.map(e => ({ ...e, modelState: stateByKey[e.stateKey], state: stateByKey[e.stateKey] })).sort((a, b) => cmpNat(a.id, b.id));
@@ -198,7 +197,9 @@ try {
 } catch (_) {}
 const sharedT = id => shared.t[id] || '';
 const sharedZ = id => shared.z[id] || byId.get(id).modelState.key;
-for (const id of Object.keys(local.t)) if (!byId.has(id) || local.t[id] === sharedT(id)) delete local.t[id];
+const validT = v => v === '' || /^([1-9]|10)$/.test(v); // '' = wyczyszczony; stare wartosci slowne odpadaja
+for (const id of Object.keys(shared.t)) if (!validT(shared.t[id])) delete shared.t[id];
+for (const id of Object.keys(local.t)) if (!byId.has(id) || !validT(local.t[id]) || local.t[id] === sharedT(id)) delete local.t[id];
 for (const id of Object.keys(local.z)) if (!byId.has(id) || !stateByKey[local.z[id]] || local.z[id] === sharedZ(id)) delete local.z[id];
 const saveLocal = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(local)); } catch (_) {} };
 saveLocal();
@@ -217,16 +218,15 @@ function mergedOceny() {
   return o;
 }
 
+// warunek reguly: [min, max], null = "Brak oceny", pominiety = dowolna ocena
+function matches(cond, v) {
+  if (cond === undefined) return true;
+  if (cond === null) return v === null;
+  return v !== null && v >= cond[0] && v <= cond[1];
+}
 function ruleFor(e) {
-  const z = e.state.grade, t = techOf(e);
-  for (const r of RULES) {
-    if ('z' in r) {
-      if (r.z === null) { if (z !== null) continue; }
-      else if (z === null || z < r.z[0] || z > r.z[1]) continue;
-    }
-    if ('t' in r && !r.t.includes(t)) continue;
-    return r;
-  }
+  const z = e.state.grade, t = techOf(e) ? +techOf(e) : null;
+  for (const r of RULES) if (matches(r.z, z) && matches(r.t, t)) return r;
   return { tekst: '—', priorytet: null };
 }
 // nazwy warstw w Rhino sa bez polskich znakow - tylko do wyswietlania
@@ -234,7 +234,11 @@ const PL = { sredni: 'średni', zly: 'zły', niezadowalajacy: 'niezadowalający'
   wypelnienia: 'wypełnienia', Sciany: 'Ściany', dzialowe: 'działowe' };
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const plText = t => t.replace(/\p{L}+/gu, w => PL[w] || w);
-const stateLabel = s => s.grade ? `${String(s.grade).padStart(2, '0')} – ${plText(s.label)}` : s.label;
+const stateLabel = s => s.grade ? `${s.grade} – ${plText(s.label)}` : s.label;
+// stan techniczny: te same kategorie 1-10 co stan zachowania (klucz = numer oceny jako tekst)
+const TECH = STATE_CHOICES.filter(s => s.grade !== null).map(s => ({ key: String(s.grade), label: stateLabel(s), color: s.color }));
+const TECH_LABEL = Object.fromEntries(TECH.map(t => [t.key, t.label]));
+const TECH_COLOR = Object.fromEntries(TECH.map(t => [t.key, t.color]));
 
 // ---------- geometria ----------
 const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
@@ -464,7 +468,7 @@ function buildRows() {
     tr.innerHTML =
       `<td class="c-id" data-col="id">${esc(e.id)}${sub ? `<span class="auto">${esc(sub)}</span>` : ''}</td>` +
       `<td class="c-sz" data-col="sz"><span class="sz"><span class="chip"></span></span></td>` +
-      `<td class="c-st" data-col="st"></td>` +
+      `<td class="c-st" data-col="st"><span class="sz"><span class="chip"></span></span></td>` +
       `<td class="c-wt" data-col="wt"></td>`;
     const zsel = document.createElement('select');
     zsel.innerHTML = STATE_CHOICES.map(s => `<option value="${esc(s.key)}">${esc(stateLabel(s))}</option>`).join('');
@@ -475,12 +479,12 @@ function buildRows() {
     tr.children[1].firstChild.append(zsel);
     const sel = document.createElement('select');
     sel.title = 'Stan techniczny';
-    sel.innerHTML = `<option value="">—</option>` + TECH.map(t => `<option value="${t.key}">${t.label}</option>`).join('');
+    sel.innerHTML = TECH.map(t => `<option value="${t.key}">${esc(t.label)}</option>`).join('') + `<option value="">Brak oceny</option>`;
     sel.onchange = () => {
       setTech(e.id, sel.value);
       saveLocal(); refreshRow(e); updateDirty(); lastKey = null; applyHighlight();
     };
-    tr.children[2].append(sel);
+    tr.children[2].firstChild.append(sel);
     rowById.set(e.id, tr);
     refreshRow(e);
     tbody.append(tr);
@@ -500,9 +504,10 @@ function refreshRow(e) {
   // stan techniczny
   const tc = tr.children[2], sel = tc.querySelector('select');
   if (sel.value !== (techOf(e) || '')) sel.value = techOf(e) || '';
+  tc.querySelector('.chip').style.background = TECH_COLOR[techOf(e)] || stateByKey['Brak oceny'].color;
   const tDirty = e.id in local.t;
   tc.classList.toggle('dirty', tDirty);
-  sel.title = tDirty ? 'Zmiana niezapisana we wspólnym pliku (w pliku: ' + (TECH_LABEL[shared.t[e.id]] || 'nieokreślony') + ')' : 'Stan techniczny';
+  sel.title = tDirty ? 'Zmiana niezapisana we wspólnym pliku (w pliku: ' + (TECH_LABEL[shared.t[e.id]] || 'Brak oceny') + ')' : 'Stan techniczny';
 }
 function sortValue(e, col) {
   if (col === 'sz') return e.state.grade ?? 99;
@@ -516,7 +521,7 @@ function renderOrder() {
   const list = els.filter(e => {
     if (!f) return true;
     const v = cellVals(e);
-    return norm([e.id, stateLabel(e.state), TECH_LABEL[v.st] || 'nieokreślony', v.wt, ...e.categories, ...e.parts].join(' ')).includes(f);
+    return norm([e.id, stateLabel(e.state), TECH_LABEL[v.st] || 'Brak oceny', v.wt, ...e.categories, ...e.parts].join(' ')).includes(f);
   });
   list.sort((a, b) => (sortCol === 'id' ? cmpNat(a.id, b.id) * sortDir
     : (sortValue(a, sortCol) - sortValue(b, sortCol)) * sortDir || cmpNat(a.id, b.id)));
@@ -613,7 +618,7 @@ function showTip(e, ev) {
   tip.innerHTML =
     `<div class="id">${esc(e.id)}</div>` +
     `<div class="row"><span class="k">Stan zachowania</span><span class="chip" style="background:${e.state.color}"></span><span>${esc(stateLabel(e.state))}</span></div>` +
-    `<div class="row"><span class="k">Stan techniczny</span><span>${t ? esc(TECH_LABEL[t]) : '<i>nieokreślony</i>'}</span></div>` +
+    `<div class="row"><span class="k">Stan techniczny</span><span>${t ? esc(TECH_LABEL[t]) : '<i>Brak oceny</i>'}</span></div>` +
     `<div class="row"><span class="k">Wytyczne</span><span>${r.priorytet ? `<b>P${r.priorytet}</b> ` : ''}${esc(r.tekst)}</span></div>` +
     (e.categories.length ? `<div class="row"><span class="k">Opis w modelu</span><span>${esc(e.categories.join('; '))}</span></div>` : '');
   tip.style.display = 'block';
@@ -633,7 +638,7 @@ function refreshAll() {
 document.getElementById('btnExport').onclick = () => {
   const body = '/*\n * Wspólne oceny elementów (klucz = ID elementu).\n' +
     ' *   stanZachowania: zmiany względem warstwy w modelu Rhino, np. "Ocena 07 - zly", "Brak oceny"\n' +
-    ' *   stanTechniczny: \'dobry\' | \'dostateczny\' | \'zly\' | \'awaryjny\'\n' +
+    ' *   stanTechniczny: ocena "1" .. "10" (te same kategorie co stan zachowania)\n' +
     ' * Plik podmieniany przyciskiem "Zapisz plik" na stronie, a następnie commitowany do repozytorium.\n */\n' +
     'window.OCENY = ' + JSON.stringify(mergedOceny(), null, 2) + ';\n';
   const blob = new Blob([body], { type: 'text/javascript' });
@@ -674,8 +679,8 @@ fileIn.onchange = async () => {
 document.querySelectorAll('dialog [data-close]').forEach(b => b.onclick = () => b.closest('dialog').close());
 document.querySelectorAll('dialog').forEach(d => d.addEventListener('click', ev => { if (ev.target === d) d.close(); }));
 document.getElementById('btnRules').onclick = () => {
-  const zTxt = r => !('z' in r) ? 'dowolny' : r.z === null ? 'brak oceny' : r.z[0] === r.z[1] ? String(r.z[0]) : `${r.z[0]}–${r.z[1]}`;
-  const tTxt = r => !('t' in r) ? 'dowolny' : r.t.map(x => x === null ? 'nieokreślony' : TECH_LABEL[x]).join(', ');
+  const rng = c => c === undefined ? 'dowolna' : c === null ? 'Brak oceny' : c[0] === c[1] ? String(c[0]) : `${c[0]}–${c[1]}`;
+  const zTxt = r => rng(r.z), tTxt = r => rng(r.t);
   document.getElementById('rulesBody').innerHTML =
     `<p>Wytyczne wyznaczane są automatycznie: reguły sprawdzane są po kolei, obowiązuje <b>pierwsza spełniona</b>. Reguły edytuje się w pliku <code>js/reguly-wytycznych.js</code>.</p>` +
     `<table><thead><tr><th>#</th><th>Stan zachowania (ocena)</th><th>Stan techniczny</th><th>Wytyczne</th><th>Priorytet</th><th>Elementów</th></tr></thead><tbody>` +
