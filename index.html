@@ -157,61 +157,88 @@
 <dialog id="dlgNotes"><div class="dh"><h2>Uwagi do modelu</h2><button class="btn" data-close>Zamknij</button></div><div class="db" id="notesBody"></div></dialog>
 
 <!-- ?v= wymusza pobranie nowej wersji po aktualizacji; zmień numer przy zmianie tych plików -->
-<script src="js/reguly-wytycznych.js?v=3"></script>
-<script src="data/model-data.js?v=3"></script>
-<script src="data/oceny.js?v=3"></script>
+<script src="js/skala.js?v=4"></script>
+<script src="js/reguly-wytycznych.js?v=4"></script>
+<script src="data/model-data.js?v=4"></script>
+<script src="data/oceny.js?v=4"></script>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const D = window.MODEL_DATA;
-if (!D || !window.REGULY_WYTYCZNYCH) {
-  document.getElementById('loading').textContent = 'Nie udało się wczytać danych (data/model-data.js lub js/reguly-wytycznych.js). Otwórz index.html z folderu projektu.';
+if (!D || !window.REGULY_WYTYCZNYCH || !window.SKALA) {
+  document.getElementById('loading').textContent = 'Nie udało się wczytać danych (data/model-data.js, js/skala.js lub js/reguly-wytycznych.js). Otwórz index.html z folderu projektu.';
   throw new Error('Brak danych modelu');
 }
 const RULES = window.REGULY_WYTYCZNYCH;
-const STORE_KEY = 'falenty-oranzeria:oceny-zmiany';
-const OLD_STORE_KEY = 'falenty-oranzeria:stan-techniczny-zmiany';
+const STORE_KEY = 'falenty-oranzeria:oceny-zmiany-skala5';
+const OLD_STORE_KEYS = ['falenty-oranzeria:oceny-zmiany', 'falenty-oranzeria:stan-techniczny-zmiany']; // skala 1-10
+
+// ---------- skala ocen (wspolna dla obu stanow, js/skala.js) ----------
+// klucz oceny: '1'..'5', '' = "Brak oceny"
+const SCALE = window.SKALA.map(s => ({ key: String(s.ocena), grade: s.ocena, label: s.nazwa, color: s.kolor }));
+const BRAK = { key: '', grade: null, label: window.BRAK_OCENY.nazwa, color: window.BRAK_OCENY.kolor };
+const scaleByKey = Object.fromEntries([...SCALE, BRAK].map(s => [s.key, s]));
+const MAP10 = window.MAPA_SKALI_10_NA_5;
+const isScaleKey = v => typeof v === 'string' && v in scaleByKey;
+// dawne wartosci (skala 1-10): "Ocena 07 - zly" / "Brak oceny" / "7" -> klucz skali 1-5; null = nierozpoznana
+function fromOld(v) {
+  if (v === '' || v === 'Brak oceny') return '';
+  const m = String(v).match(/^(?:Ocena\s*)?0*(\d+)\b/);
+  return m && MAP10[+m[1]] ? String(MAP10[+m[1]]) : null;
+}
 
 // ---------- dane ----------
-const stateByKey = Object.fromEntries(D.states.map(s => [s.key, s]));
-// stany do wyboru: oceny 1-10 i "Brak oceny" (bez warstw pomocniczych, np. "Opisy")
-const STATE_CHOICES = D.states.filter(s => s.grade !== null || s.key === 'Brak oceny');
+const layerByKey = Object.fromEntries(D.states.map(s => [s.key, s])); // warstwy "Stan zachowania::*" z Rhino
 const cmpNat = (a, b) => a.localeCompare(b, 'pl', { numeric: true, sensitivity: 'base' });
-const els = D.elements.map(e => ({ ...e, modelState: stateByKey[e.stateKey], state: stateByKey[e.stateKey] })).sort((a, b) => cmpNat(a.id, b.id));
+const els = D.elements.map(e => {
+  const layer = layerByKey[e.stateKey];
+  const modelState = layer.grade ? scaleByKey[String(MAP10[layer.grade])] : BRAK; // warstwa -> skala 1-5
+  return { ...e, layer, modelState, state: modelState };
+}).sort((a, b) => cmpNat(a.id, b.id));
 els.forEach((e, i) => e.idx = i);
 const byId = new Map(els.map(e => [e.id, e]));
 document.getElementById('srcinfo').textContent = 'waloryzacja – model 3D (' + D.source + ')';
 
 // oceny: wspolny plik data/oceny.js + niezapisane zmiany tej przegladarki.
-// local.t: ID -> stan techniczny lub '' (wyczyszczony); local.z: ID -> klucz stanu zachowania.
-// Wpis lokalny znika, gdy zgadza sie z plikiem.
+// local.t / local.z: ID -> klucz oceny ('' = Brak oceny). Wpis lokalny znika, gdy zgadza sie z plikiem.
+function readOceny(src, old) {
+  const out = {};
+  for (const [id, v] of Object.entries(src || {})) {
+    const k = old ? fromOld(v) : (isScaleKey(v) ? v : null);
+    if (k !== null && byId.has(id)) out[id] = k;
+  }
+  return out;
+}
 const sharedFile = window.OCENY || {};
-const shared = { t: sharedFile.stanTechniczny || {}, z: sharedFile.stanZachowania || {} };
-for (const id of Object.keys(shared.z)) if (!stateByKey[shared.z[id]]) delete shared.z[id];
+const sharedOld = sharedFile.skala !== 5; // plik zapisany jeszcze w skali 1-10
+const shared = { t: readOceny(sharedFile.stanTechniczny, sharedOld), z: readOceny(sharedFile.stanZachowania, sharedOld) };
 let local = { t: {}, z: {} };
 try {
   const raw = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
-  if (raw) local = { t: raw.t || {}, z: raw.z || {} };
-  else local.t = JSON.parse(localStorage.getItem(OLD_STORE_KEY) || '{}') || {};
-  localStorage.removeItem(OLD_STORE_KEY);
+  if (raw) local = { t: readOceny(raw.t, false), z: readOceny(raw.z, false) };
+  else {
+    const old = JSON.parse(localStorage.getItem(OLD_STORE_KEYS[0]) || 'null');
+    if (old) local = { t: readOceny(old.t, true), z: readOceny(old.z, true) };
+  }
+  OLD_STORE_KEYS.forEach(k => localStorage.removeItem(k));
 } catch (_) {}
-const sharedT = id => shared.t[id] || '';
-const sharedZ = id => shared.z[id] || byId.get(id).modelState.key;
-const validT = v => v === '' || /^([1-9]|10)$/.test(v); // '' = wyczyszczony; stare wartosci slowne odpadaja
-for (const id of Object.keys(shared.t)) if (!validT(shared.t[id])) delete shared.t[id];
-for (const id of Object.keys(local.t)) if (!byId.has(id) || !validT(local.t[id]) || local.t[id] === sharedT(id)) delete local.t[id];
-for (const id of Object.keys(local.z)) if (!byId.has(id) || !stateByKey[local.z[id]] || local.z[id] === sharedZ(id)) delete local.z[id];
+const sharedT = id => shared.t[id] ?? '';
+const sharedZ = id => shared.z[id] ?? byId.get(id).modelState.key;
+for (const id of Object.keys(local.t)) if (local.t[id] === sharedT(id)) delete local.t[id];
+for (const id of Object.keys(local.z)) if (local.z[id] === sharedZ(id)) delete local.z[id];
 const saveLocal = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(local)); } catch (_) {} };
 saveLocal();
-const techOf = e => { const v = e.id in local.t ? local.t[e.id] : shared.t[e.id]; return TECH_LABEL[v] ? v : null; };
+// stan techniczny: klucz '1'..'5' albo null (Brak oceny)
+const techOf = e => (e.id in local.t ? local.t[e.id] : sharedT(e.id)) || null;
+const techState = e => scaleByKey[techOf(e) || ''];
 const zKeyOf = e => e.id in local.z ? local.z[e.id] : sharedZ(e.id);
 const dirtyCount = () => Object.keys(local.t).length + Object.keys(local.z).length;
 function setTech(id, v) { if (v === sharedT(id)) delete local.t[id]; else local.t[id] = v; syncTech(byId.get(id)); }
 function setZach(id, key) { if (key === sharedZ(id)) delete local.z[id]; else local.z[id] = key; syncState(byId.get(id)); }
 // zawartosc wspolnego pliku: stan zachowania tylko tam, gdzie rozni sie od modelu
 function mergedOceny() {
-  const o = { stanZachowania: {}, stanTechniczny: {} };
+  const o = { skala: 5, stanZachowania: {}, stanTechniczny: {} };
   for (const e of els) {
     if (e.state !== e.modelState) o.stanZachowania[e.id] = e.state.key;
     const t = techOf(e); if (t) o.stanTechniczny[e.id] = t;
@@ -235,11 +262,9 @@ const PL = { sredni: 'średni', zly: 'zły', niezadowalajacy: 'niezadowalający'
   wypelnienia: 'wypełnienia', Sciany: 'Ściany', dzialowe: 'działowe' };
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const plText = t => t.replace(/\p{L}+/gu, w => PL[w] || w);
-const stateLabel = s => s.grade ? `${s.grade} – ${plText(s.label)}` : s.label;
-// stan techniczny: te same kategorie 1-10 co stan zachowania (klucz = numer oceny jako tekst)
-const TECH = STATE_CHOICES.filter(s => s.grade !== null).map(s => ({ key: String(s.grade), label: stateLabel(s), color: s.color }));
-const TECH_LABEL = Object.fromEntries(TECH.map(t => [t.key, t.label]));
-const TECH_COLOR = Object.fromEntries(TECH.map(t => [t.key, t.color]));
+const stateLabel = s => s.grade ? `${s.grade} – ${s.label}` : s.label;
+// warstwa w Rhino (skala 1-10) - tylko do "Uwag do modelu"
+const layerLabel = l => l.grade ? `Ocena ${l.grade} – ${plText(l.label)}` : l.label;
 
 // ---------- geometria ----------
 const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
@@ -261,7 +286,7 @@ const stateAttr = new THREE.BufferAttribute(stateCol, 3);
 const matAttr = new THREE.BufferAttribute(matCol, 3);
 // ustawia biezacy stan zachowania elementu i jego kolor w modelu
 function syncState(e) {
-  e.state = stateByKey[zKeyOf(e)];
+  e.state = scaleByKey[zKeyOf(e)];
   tmp.set(e.state.color); // Color.set('#hex') konwertuje juz sRGB -> liniowe
   for (let v = e.vStart; v < e.vStart + e.vCount; v++) stateCol.set([tmp.r, tmp.g, tmp.b], v * 3);
   stateAttr.needsUpdate = true;
@@ -271,7 +296,7 @@ els.forEach(syncState);
 const techCol = new Float32Array(nV * 3);
 const techAttr = new THREE.BufferAttribute(techCol, 3);
 function syncTech(e) {
-  tmp.set(TECH_COLOR[techOf(e)] || stateByKey['Brak oceny'].color);
+  tmp.set(techState(e).color);
   for (let v = e.vStart; v < e.vStart + e.vCount; v++) techCol.set([tmp.r, tmp.g, tmp.b], v * 3);
   techAttr.needsUpdate = true;
 }
@@ -433,9 +458,8 @@ function buildLegend() {
   const tech = colorMode === 'tech';
   legendTitle.textContent = tech ? 'Stan techniczny' : 'Stan zachowania';
   const groups = tech
-    ? [...TECH.map(t => ({ label: t.label, color: t.color, test: e => techOf(e) === t.key })),
-       { label: 'Brak oceny', color: stateByKey['Brak oceny'].color, test: e => !techOf(e) }]
-    : D.states.map(s => ({ label: stateLabel(s), color: s.color, test: e => e.state === s }));
+    ? [...SCALE, BRAK].map(s => ({ label: stateLabel(s), color: s.color, test: e => techState(e) === s }))
+    : [...SCALE, BRAK].map(s => ({ label: stateLabel(s), color: s.color, test: e => e.state === s }));
   legendItems.textContent = '';
   legendGroups = [];
   for (const g of groups) {
@@ -493,7 +517,8 @@ function buildRows() {
       `<td class="c-st" data-col="st"><span class="sz"><span class="chip"></span></span></td>` +
       `<td class="c-wt" data-col="wt"></td>`;
     const zsel = document.createElement('select');
-    zsel.innerHTML = STATE_CHOICES.map(s => `<option value="${esc(s.key)}">${esc(stateLabel(s))}</option>`).join('');
+    const OPTIONS = [...SCALE, BRAK].map(s => `<option value="${s.key}">${esc(stateLabel(s))}</option>`).join('');
+    zsel.innerHTML = OPTIONS;
     zsel.onchange = () => {
       setZach(e.id, zsel.value);
       saveLocal(); refreshRow(e); buildLegend(); renderOrder(); updateDirty(); lastKey = null; applyHighlight();
@@ -501,7 +526,7 @@ function buildRows() {
     tr.children[1].firstChild.append(zsel);
     const sel = document.createElement('select');
     sel.title = 'Stan techniczny';
-    sel.innerHTML = TECH.map(t => `<option value="${t.key}">${esc(t.label)}</option>`).join('') + `<option value="">Brak oceny</option>`;
+    sel.innerHTML = OPTIONS;
     sel.onchange = () => {
       setTech(e.id, sel.value);
       saveLocal(); refreshRow(e); buildLegend(); updateDirty(); lastKey = null; applyHighlight();
@@ -522,18 +547,18 @@ function refreshRow(e) {
   zc.querySelector('.chip').style.background = e.state.color;
   const zDirty = e.id in local.z;
   zc.classList.toggle('dirty', zDirty);
-  zsel.title = zDirty ? 'Zmiana niezapisana we wspólnym pliku (w pliku: ' + stateLabel(stateByKey[sharedZ(e.id)]) + ')' : 'Stan zachowania';
+  zsel.title = zDirty ? 'Zmiana niezapisana we wspólnym pliku (w pliku: ' + stateLabel(scaleByKey[sharedZ(e.id)]) + ')' : 'Stan zachowania';
   // stan techniczny
   const tc = tr.children[2], sel = tc.querySelector('select');
   if (sel.value !== (techOf(e) || '')) sel.value = techOf(e) || '';
-  tc.querySelector('.chip').style.background = TECH_COLOR[techOf(e)] || stateByKey['Brak oceny'].color;
+  tc.querySelector('.chip').style.background = techState(e).color;
   const tDirty = e.id in local.t;
   tc.classList.toggle('dirty', tDirty);
-  sel.title = tDirty ? 'Zmiana niezapisana we wspólnym pliku (w pliku: ' + (TECH_LABEL[shared.t[e.id]] || 'Brak oceny') + ')' : 'Stan techniczny';
+  sel.title = tDirty ? 'Zmiana niezapisana we wspólnym pliku (w pliku: ' + stateLabel(scaleByKey[sharedT(e.id)]) + ')' : 'Stan techniczny';
 }
 function sortValue(e, col) {
   if (col === 'sz') return e.state.grade ?? 99;
-  if (col === 'st') { const t = techOf(e); return t ? TECH.findIndex(x => x.key === t) : 99; }
+  if (col === 'st') return techState(e).grade ?? 99;
   if (col === 'wt') { const r = ruleFor(e); return (r.priorytet ?? 9) * 1000 + RULES.indexOf(r); }
   return 0;
 }
@@ -543,7 +568,7 @@ function renderOrder() {
   const list = els.filter(e => {
     if (!f) return true;
     const v = cellVals(e);
-    return norm([e.id, stateLabel(e.state), TECH_LABEL[v.st] || 'Brak oceny', v.wt, ...e.categories, ...e.parts].join(' ')).includes(f);
+    return norm([e.id, stateLabel(e.state), stateLabel(techState(e)), v.wt, ...e.categories, ...e.parts].join(' ')).includes(f);
   });
   list.sort((a, b) => (sortCol === 'id' ? cmpNat(a.id, b.id) * sortDir
     : (sortValue(a, sortCol) - sortValue(b, sortCol)) * sortDir || cmpNat(a.id, b.id)));
@@ -638,7 +663,7 @@ function showTip(e, ev) {
   tip.innerHTML =
     `<div class="id">${esc(e.id)}</div>` +
     `<div class="row"><span class="k">Stan zachowania</span><span class="chip" style="background:${e.state.color}"></span><span>${esc(stateLabel(e.state))}</span></div>` +
-    `<div class="row"><span class="k">Stan techniczny</span><span>${t ? esc(TECH_LABEL[t]) : '<i>Brak oceny</i>'}</span></div>` +
+    `<div class="row"><span class="k">Stan techniczny</span><span>${t ? esc(stateLabel(techState(e))) : '<i>Brak oceny</i>'}</span></div>` +
     `<div class="row"><span class="k">Wytyczne</span><span>${r.priorytet ? `<b>P${r.priorytet}</b> ` : ''}${esc(r.tekst)}</span></div>` +
     (e.categories.length ? `<div class="row"><span class="k">Opis w modelu</span><span>${esc(e.categories.join('; '))}</span></div>` : '');
   tip.style.display = 'block';
@@ -657,8 +682,9 @@ function refreshAll() {
 // "Zapisz plik" pobiera nowa wersje data/oceny.js (do podmiany w repozytorium)
 document.getElementById('btnExport').onclick = () => {
   const body = '/*\n * Wspólne oceny elementów (klucz = ID elementu).\n' +
-    ' *   stanZachowania: zmiany względem warstwy w modelu Rhino, np. "Ocena 07 - zly", "Brak oceny"\n' +
-    ' *   stanTechniczny: ocena "1" .. "10" (te same kategorie co stan zachowania)\n' +
+    ' *   skala: 5 - oceny "1" .. "5" (js/skala.js), "" = Brak oceny\n' +
+    ' *   stanZachowania: zmiany względem warstwy w modelu Rhino\n' +
+    ' *   stanTechniczny: ocena stanu technicznego\n' +
     ' * Plik podmieniany przyciskiem "Zapisz plik" na stronie, a następnie commitowany do repozytorium.\n */\n' +
     'window.OCENY = ' + JSON.stringify(mergedOceny(), null, 2) + ';\n';
   const blob = new Blob([body], { type: 'text/javascript' });
@@ -686,9 +712,11 @@ fileIn.onchange = async () => {
     const txt = (await f.text()).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*window\.(OCENY|STAN_TECHNICZNY)\s*=\s*/, '').replace(/;\s*$/, '');
     const j = JSON.parse(txt);
     const srcT = j.stanTechniczny || (j.stanZachowania ? {} : j), srcZ = j.stanZachowania || {};
+    const old = j.skala !== 5; // plik w dawnej skali 1-10 - przeliczany na 1-5
+    const conv = v => old ? fromOld(v) : (isScaleKey(v) ? v : null);
     let n = 0, skip = 0;
-    for (const [id, v] of Object.entries(srcT)) { if (byId.has(id) && TECH_LABEL[v]) { setTech(id, v); n++; } else skip++; }
-    for (const [id, v] of Object.entries(srcZ)) { if (byId.has(id) && stateByKey[v]) { setZach(id, v); n++; } else skip++; }
+    for (const [id, v] of Object.entries(srcT)) { const k = conv(v); if (byId.has(id) && k !== null) { setTech(id, k); n++; } else skip++; }
+    for (const [id, v] of Object.entries(srcZ)) { const k = conv(v); if (byId.has(id) && k !== null) { setZach(id, k); n++; } else skip++; }
     saveLocal(); refreshAll();
     const wpis = k => k === 1 ? 'wpis' : (k % 10 >= 2 && k % 10 <= 4 && (k % 100 < 12 || k % 100 > 14)) ? 'wpisy' : 'wpisów';
     alert(`Wczytano ${n} ${wpis(n)}` + (skip ? `, pominięto ${skip} (nieznane ID lub wartość)` : '') + '.');
@@ -716,13 +744,13 @@ document.getElementById('btnNotes').onclick = () => {
   const mism = [];
   for (const e of els) for (const c of e.categories) {
     const m = c.match(/\((\d+)\/10\)\s*$/);
-    if (m && e.modelState.grade && +m[1] !== e.modelState.grade) mism.push(`<b>${esc(e.id)}</b>: warstwa „${esc(stateLabel(e.modelState))}”, w nazwie obiektu „${esc(c)}”`);
+    if (m && e.layer.grade && +m[1] !== e.layer.grade) mism.push(`<b>${esc(e.id)}</b>: warstwa „${esc(layerLabel(e.layer))}”, w nazwie obiektu „${esc(c)}”`);
   }
   document.getElementById('notesBody').innerHTML =
     `<p>Źródło: <code>${esc(D.source)}</code>. Elementy interaktywne to obiekty z warstw <code>Stan zachowania::*</code> (${els.length}). ` +
     `Geometria z warstw <code>Oranzeria::*</code> (duplikat, w Rhino ukryta) służy tylko do kolorów w trybie „Materiał”; warstwy <code>Skan</code> i <code>Elewacje - dokumentacja</code> nie są wyświetlane.</p>` +
     `<h3>Elementy bez bloku – ID nadane automatycznie (${auto.length})</h3><p>Według nazwy obiektu (część przed „|”); gdy nazwa się powtarza – kolejny numer wg położenia wzdłuż elewacji.</p>${li(auto.map(e => esc(e.id) + (e.unnamed ? ' <i>(obiekt bez nazwy – nazwa wg elementu, w którym leży)</i>' : '')))}` +
-    `<h3>Bloki z członkami na różnych warstwach stanu – podzielone na wiersze (${split.length})</h3>${li(split.map(e => `${esc(e.id)} – ${esc(stateLabel(e.modelState))} (${e.partCount} obiekt/y)`))}` +
+    `<h3>Bloki z członkami na różnych warstwach stanu – podzielone na wiersze (${split.length})</h3>${li(split.map(e => `${esc(e.id)} – ${esc(layerLabel(e.layer))} (${e.partCount} obiekt/y)`))}` +
     `<h3>Niezgodność oceny w nazwie obiektu z warstwą (${mism.length})</h3><p>Opis „(x/10)” w nazwie obiektu różni się od warstwy, na której obiekt leży. Jako wartość początkową tabela przyjmuje stan z <b>warstwy</b>.</p>${li(mism)}` +
     `<h3>Inne</h3>${li(['Blok „Stan - Impost”: jeden obiekt leży na warstwie „Ocena 10 - ruina / utrata”, ale ma kolor „z rodzica” (w Rhino wyświetla się jak 07). Przyjęto stan z warstwy (10) → wiersz <b>Impost.2</b>.',
       'Obiekty bez nazwy: ' + (unnamed.map(e => esc(e.id)).join(', ') || '—') + '.'])}`;

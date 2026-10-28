@@ -1,10 +1,12 @@
 /*
  * Wspólne oceny elementów (klucz = ID elementu).
- *   stanZachowania: zmiany względem warstwy w modelu Rhino, np. "Ocena 07 - zly", "Brak oceny"
- *   stanTechniczny: ocena "1" .. "10" (te same kategorie co stan zachowania)
+ *   skala: 5 - oceny "1" .. "5" (js/skala.js), "" = Brak oceny
+ *   stanZachowania: zmiany względem warstwy w modelu Rhino
+ *   stanTechniczny: ocena stanu technicznego
  * Plik podmieniany przyciskiem "Zapisz plik" na stronie, a następnie commitowany do repozytorium.
  */
 window.OCENY = {
+  "skala": 5,
   "stanZachowania": {},
   "stanTechniczny": {}
 };
