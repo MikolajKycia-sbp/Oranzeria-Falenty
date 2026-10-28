@@ -6,7 +6,7 @@ Otwórz `index.html` w przeglądarce (Chrome / Edge / Firefox). Potrzebny jest i
 
 | Plik | Rola |
 |---|---|
-| `index.html` | strona: model 3D (lewa) + tabela (prawa) |
+| `index.html` | strona: model 3D (lewa) + tabela (prawa); kolory modelu wg stanu zachowania, stanu technicznego lub materiału |
 | `data/model-data.js` | geometria i elementy wyeksportowane z Rhino (**generowany**) |
 | `data/oceny.js` | wspólne oceny: zmiany stanu zachowania i stan techniczny (podmieniany przyciskiem „Zapisz plik”) |
 | `js/reguly-wytycznych.js` | reguły wyznaczania wytycznych – do edycji |

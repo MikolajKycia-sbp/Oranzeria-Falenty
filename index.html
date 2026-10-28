@@ -104,6 +104,7 @@
   <span class="spacer"></span>
   <span class="seg" id="colormode">
     <button class="btn on" data-mode="state" title="Kolory warstw stanu zachowania">Stan zachowania</button>
+    <button class="btn" data-mode="tech" title="Kolory według stanu technicznego (ta sama skala barw)">Stan techniczny</button>
     <button class="btn" data-mode="material" title="Kolory warstw materiałowych (Oranzeria::*)">Materiał</button>
   </span>
   <button class="btn" id="btnRules">Reguły wytycznych</button>
@@ -206,7 +207,7 @@ saveLocal();
 const techOf = e => { const v = e.id in local.t ? local.t[e.id] : shared.t[e.id]; return TECH_LABEL[v] ? v : null; };
 const zKeyOf = e => e.id in local.z ? local.z[e.id] : sharedZ(e.id);
 const dirtyCount = () => Object.keys(local.t).length + Object.keys(local.z).length;
-function setTech(id, v) { if (v === sharedT(id)) delete local.t[id]; else local.t[id] = v; }
+function setTech(id, v) { if (v === sharedT(id)) delete local.t[id]; else local.t[id] = v; syncTech(byId.get(id)); }
 function setZach(id, key) { if (key === sharedZ(id)) delete local.z[id]; else local.z[id] = key; syncState(byId.get(id)); }
 // zawartosc wspolnego pliku: stan zachowania tylko tam, gdzie rozni sie od modelu
 function mergedOceny() {
@@ -266,6 +267,15 @@ function syncState(e) {
   stateAttr.needsUpdate = true;
 }
 els.forEach(syncState);
+// kolory wg stanu technicznego (te same barwy co skala stanu zachowania; brak oceny = szary)
+const techCol = new Float32Array(nV * 3);
+const techAttr = new THREE.BufferAttribute(techCol, 3);
+function syncTech(e) {
+  tmp.set(TECH_COLOR[techOf(e)] || stateByKey['Brak oceny'].color);
+  for (let v = e.vStart; v < e.vStart + e.vCount; v++) techCol.set([tmp.r, tmp.g, tmp.b], v * 3);
+  techAttr.needsUpdate = true;
+}
+els.forEach(syncTech);
 
 const baseGeo = new THREE.BufferGeometry();
 baseGeo.setAttribute('position', posAttr);
@@ -405,9 +415,10 @@ let colorMode = 'state';
 document.querySelectorAll('#colormode .btn').forEach(b => b.onclick = () => {
   colorMode = b.dataset.mode;
   document.querySelectorAll('#colormode .btn').forEach(x => x.classList.toggle('on', x === b));
-  const attr = colorMode === 'state' ? stateAttr : matAttr;
+  const attr = { state: stateAttr, tech: techAttr, material: matAttr }[colorMode];
   baseGeo.setAttribute('color', attr); hlGeo.setAttribute('color', attr);
   document.getElementById('legendMat').hidden = colorMode !== 'material';
+  buildLegend();
   lastKey = null; applyHighlight();
 });
 const btnX = document.getElementById('btnXray');
@@ -415,17 +426,28 @@ btnX.onclick = () => { xray = !xray; btnX.textContent = 'Prześwietlanie: ' + (x
 
 // ---------- legenda ----------
 const legendItems = document.getElementById('legendItems');
+const legendTitle = document.querySelector('#legend h3 span');
+let legendGroups = []; // [{el, ids}] - do podswietlania pozycji legendy
+// legenda wg stanu technicznego w trybie "Stan techniczny", w pozostalych wg stanu zachowania
 function buildLegend() {
+  const tech = colorMode === 'tech';
+  legendTitle.textContent = tech ? 'Stan techniczny' : 'Stan zachowania';
+  const groups = tech
+    ? [...TECH.map(t => ({ label: t.label, color: t.color, test: e => techOf(e) === t.key })),
+       { label: 'Brak oceny', color: stateByKey['Brak oceny'].color, test: e => !techOf(e) }]
+    : D.states.map(s => ({ label: stateLabel(s), color: s.color, test: e => e.state === s }));
   legendItems.textContent = '';
-  for (const s of D.states) {
-    const n = els.filter(e => e.state === s).length;
-    if (!n) continue;
+  legendGroups = [];
+  for (const g of groups) {
+    const ids = new Set(els.filter(g.test).map(e => e.id));
+    if (!ids.size) continue;
     const d = document.createElement('div');
-    d.className = 'item'; d.dataset.state = s.key;
-    d.innerHTML = `<span class="chip" style="background:${s.color}"></span><span>${stateLabel(s)}</span><span class="n">${n}</span>`;
-    d.onmouseenter = () => setHover(new Set(els.filter(e => e.state === s).map(e => e.id)), true);
+    d.className = 'item';
+    d.innerHTML = `<span class="chip" style="background:${g.color}"></span><span>${esc(g.label)}</span><span class="n">${ids.size}</span>`;
+    d.onmouseenter = () => setHover(ids, true);
     d.onmouseleave = () => setHover(null);
     legendItems.append(d);
+    legendGroups.push({ el: d, ids });
   }
 }
 buildLegend();
@@ -482,7 +504,7 @@ function buildRows() {
     sel.innerHTML = TECH.map(t => `<option value="${t.key}">${esc(t.label)}</option>`).join('') + `<option value="">Brak oceny</option>`;
     sel.onchange = () => {
       setTech(e.id, sel.value);
-      saveLocal(); refreshRow(e); updateDirty(); lastKey = null; applyHighlight();
+      saveLocal(); refreshRow(e); buildLegend(); updateDirty(); lastKey = null; applyHighlight();
     };
     tr.children[2].firstChild.append(sel);
     rowById.set(e.id, tr);
@@ -567,7 +589,7 @@ function syncTableHighlight() {
     tr.classList.toggle('hl', !!(a && a.ids.has(id)));
     tr.classList.toggle('pinned', !!(pinned && pinned.ids.has(id)));
   }
-  legendItems.querySelectorAll('.item').forEach(d => d.classList.toggle('hl', !!(a && els.some(e => a.ids.has(e.id) && e.state.key === d.dataset.state))));
+  for (const g of legendGroups) g.el.classList.toggle('hl', !!(a && [...g.ids].some(id => a.ids.has(id))));
 }
 function pin(ids, ghost) { pinned = ids && ids.size ? { ids, ghost } : null; lastKey = null; applyHighlight(); }
 
@@ -632,7 +654,7 @@ function hideTip() { tip.style.display = 'none'; }
 
 // ---------- zapis / import ocen ----------
 function refreshAll() {
-  els.forEach(syncState); els.forEach(refreshRow); buildLegend(); renderOrder(); updateDirty(); lastKey = null; applyHighlight();
+  els.forEach(syncState); els.forEach(syncTech); els.forEach(refreshRow); buildLegend(); renderOrder(); updateDirty(); lastKey = null; applyHighlight();
 }
 // "Zapisz plik" pobiera nowa wersje data/oceny.js (do podmiany w repozytorium)
 document.getElementById('btnExport').onclick = () => {
