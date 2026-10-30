@@ -160,10 +160,10 @@
 <dialog id="dlgNotes"><div class="dh"><h2>Uwagi do modelu</h2><button class="btn" data-close>Zamknij</button></div><div class="db" id="notesBody"></div></dialog>
 
 <!-- ?v= wymusza pobranie nowej wersji po aktualizacji; zmień numer przy zmianie tych plików -->
-<script src="js/skala.js?v=7"></script>
-<script src="js/reguly-wytycznych.js?v=7"></script>
-<script src="data/model-data.js?v=7"></script>
-<script src="data/oceny.js?v=7"></script>
+<script src="js/skala.js?v=8"></script>
+<script src="js/reguly-wytycznych.js?v=8"></script>
+<script src="data/model-data.js?v=8"></script>
+<script src="data/oceny.js?v=8"></script>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -268,9 +268,12 @@ function matches(cond, v) {
 }
 function ruleFor(e) {
   const z = e.state.grade, t = techOf(e) ? +techOf(e) : null;
-  for (const r of RULES) if (matches(r.z, z) && matches(r.t, t)) return r;
+  const suma = z !== null && t !== null ? z + t : null; // suma tylko przy obu ocenach
+  for (const r of RULES) if (matches(r.z, z) && matches(r.t, t) && matches(r.suma, suma)) return r;
   return { tekst: '—', priorytet: null };
 }
+// oznaczenie wytycznej: kod z reguly (np. W5), a gdy go brak - P<priorytet>
+const ruleBadge = r => r.priorytet ? `<span class="prio p${r.priorytet}" title="Pilność ${r.priorytet} (1 = najpilniejsze)">${esc(r.kod || 'P' + r.priorytet)}</span>` : '';
 // nazwy warstw w Rhino sa bez polskich znakow - tylko do wyswietlania
 const PL = { sredni: 'średni', zly: 'zły', niezadowalajacy: 'niezadowalający', zadowalajacy: 'zadowalający',
   wypelnienia: 'wypełnienia', Sciany: 'Ściany', dzialowe: 'działowe' };
@@ -553,7 +556,7 @@ function buildRows() {
 }
 function refreshRow(e) {
   const tr = rowById.get(e.id), r = ruleFor(e);
-  tr.children[3].innerHTML = (r.priorytet ? `<span class="prio p${r.priorytet}" title="Priorytet ${r.priorytet}">P${r.priorytet}</span>` : '') + esc(r.tekst);
+  tr.children[3].innerHTML = ruleBadge(r) + esc(r.tekst);
   // stan zachowania
   const zc = tr.children[1], zsel = zc.querySelector('select');
   if (zsel.value !== e.state.key) zsel.value = e.state.key;
@@ -677,7 +680,7 @@ function showTip(e, ev) {
     `<div class="id">${esc(e.id)}</div>` +
     `<div class="row"><span class="k">Stan zachowania</span><span class="chip" style="background:${e.state.color}"></span><span>${esc(stateLabel(e.state))}</span></div>` +
     `<div class="row"><span class="k">Stan techniczny</span><span>${t ? esc(stateLabel(techState(e))) : '<i>Brak oceny</i>'}</span></div>` +
-    `<div class="row"><span class="k">Wytyczne</span><span>${r.priorytet ? `<b>P${r.priorytet}</b> ` : ''}${esc(r.tekst)}</span></div>` +
+    `<div class="row"><span class="k">Wytyczne</span><span>${r.priorytet ? `<b>${esc(r.kod || 'P' + r.priorytet)}</b> ` : ''}${esc(r.tekst)}</span></div>` +
     (e.categories.length ? `<div class="row"><span class="k">Opis w modelu</span><span>${esc(e.categories.join('; '))}</span></div>` : '');
   tip.style.display = 'block';
   const vr = viewer.getBoundingClientRect();
@@ -811,11 +814,11 @@ document.querySelectorAll('dialog [data-close]').forEach(b => b.onclick = () => 
 document.querySelectorAll('dialog').forEach(d => d.addEventListener('click', ev => { if (ev.target === d) d.close(); }));
 document.getElementById('btnRules').onclick = () => {
   const rng = c => c === undefined ? 'dowolna' : c === null ? 'Brak oceny' : c[0] === c[1] ? String(c[0]) : `${c[0]}–${c[1]}`;
-  const zTxt = r => rng(r.z), tTxt = r => rng(r.t);
+  const zTxt = r => rng(r.z), tTxt = r => rng(r.t), sTxt = r => r.suma === undefined ? 'dowolna' : rng(r.suma);
   document.getElementById('rulesBody').innerHTML =
-    `<p>Wytyczne wyznaczane są automatycznie: reguły sprawdzane są po kolei, obowiązuje <b>pierwsza spełniona</b>. Reguły edytuje się w pliku <code>js/reguly-wytycznych.js</code>.</p>` +
-    `<table><thead><tr><th>#</th><th>Stan zachowania (ocena)</th><th>Stan techniczny</th><th>Wytyczne</th><th>Priorytet</th><th>Elementów</th></tr></thead><tbody>` +
-    RULES.map((r, i) => `<tr><td>${i + 1}</td><td>${zTxt(r)}</td><td>${tTxt(r)}</td><td>${esc(r.tekst)}</td><td>${r.priorytet ? 'P' + r.priorytet : '—'}</td><td>${els.filter(e => ruleFor(e) === r).length}</td></tr>`).join('') +
+    `<p>Wytyczna zależy od <b>sumy ocen</b>: stan zachowania (1–5) + stan techniczny (1–5) = 2–10. Gdy brakuje którejś oceny, sumy nie da się policzyć. Reguły sprawdzane są po kolei, obowiązuje pierwsza spełniona; edytuje się je w pliku <code>js/reguly-wytycznych.js</code>.</p>` +
+    `<table><thead><tr><th>#</th><th>Stan zachowania (ocena)</th><th>Stan techniczny</th><th>Suma ocen</th><th>Wytyczna</th><th>Elementów</th></tr></thead><tbody>` +
+    RULES.map((r, i) => `<tr><td>${i + 1}</td><td>${zTxt(r)}</td><td>${tTxt(r)}</td><td>${sTxt(r)}</td><td>${r.kod ? '<b>' + esc(r.kod) + '</b> – ' : ''}${esc(r.tekst)}</td><td>${els.filter(e => ruleFor(e) === r).length}</td></tr>`).join('') +
     `</tbody></table>`;
   document.getElementById('dlgRules').showModal();
 };
