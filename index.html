@@ -109,7 +109,6 @@
     <button class="btn" data-mode="material" title="Kolory warstw materiałowych (Oranzeria::*)">Materiał</button>
   </span>
   <button class="btn" id="btnRules">Reguły wytycznych</button>
-  <button class="btn" id="btnNotes">Uwagi do modelu</button>
 </header>
 <main>
   <section id="viewer">
@@ -157,7 +156,6 @@
 </main>
 
 <dialog id="dlgRules"><div class="dh"><h2>Reguły wyznaczania wytycznych</h2><button class="btn" data-close>Zamknij</button></div><div class="db" id="rulesBody"></div></dialog>
-<dialog id="dlgNotes"><div class="dh"><h2>Uwagi do modelu</h2><button class="btn" data-close>Zamknij</button></div><div class="db" id="notesBody"></div></dialog>
 
 <!-- ?v= wymusza pobranie nowej wersji po aktualizacji; zmień numer przy zmianie tych plików -->
 <script src="js/skala.js?v=8"></script>
@@ -205,19 +203,17 @@ document.getElementById('srcinfo').textContent = 'waloryzacja – model 3D (' + 
 
 // oceny: wspolny plik data/oceny.js + niezapisane zmiany tej przegladarki.
 // local.t / local.z: ID -> klucz oceny ('' = Brak oceny). Wpis lokalny znika, gdy zgadza sie z plikiem.
-const orphanIds = new Set(); // oceny z data/oceny.js dla ID, ktorych nie ma w modelu (np. po usunieciu elementu)
-function readOceny(src, old, collectOrphans) {
+function readOceny(src, old) {
   const out = {};
   for (const [id, v] of Object.entries(src || {})) {
     const k = old ? fromOld(v) : (isScaleKey(v) ? v : null);
     if (k !== null && byId.has(id)) out[id] = k;
-    else if (collectOrphans && !byId.has(id)) orphanIds.add(id);
   }
   return out;
 }
 const sharedFile = window.OCENY || {};
 const sharedOld = sharedFile.skala !== 5; // plik zapisany jeszcze w skali 1-10
-const shared = { t: readOceny(sharedFile.stanTechniczny, sharedOld, true), z: readOceny(sharedFile.stanZachowania, sharedOld, true) };
+const shared = { t: readOceny(sharedFile.stanTechniczny, sharedOld), z: readOceny(sharedFile.stanZachowania, sharedOld) };
 let local = { t: {}, z: {} };
 try {
   const raw = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
@@ -280,8 +276,6 @@ const PL = { sredni: 'średni', zly: 'zły', niezadowalajacy: 'niezadowalający'
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const plText = t => t.replace(/\p{L}+/gu, w => PL[w] || w);
 const stateLabel = s => s.grade ? `${s.grade} – ${s.label}` : s.label;
-// warstwa w Rhino (skala 1-10) - tylko do "Uwag do modelu"
-const layerLabel = l => l.grade ? `Ocena ${l.grade} – ${plText(l.label)}` : l.label;
 
 // ---------- geometria ----------
 const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
@@ -821,27 +815,6 @@ document.getElementById('btnRules').onclick = () => {
     RULES.map((r, i) => `<tr><td>${i + 1}</td><td>${zTxt(r)}</td><td>${tTxt(r)}</td><td>${sTxt(r)}</td><td>${r.kod ? '<b>' + esc(r.kod) + '</b> – ' : ''}${esc(r.tekst)}</td><td>${els.filter(e => ruleFor(e) === r).length}</td></tr>`).join('') +
     `</tbody></table>`;
   document.getElementById('dlgRules').showModal();
-};
-document.getElementById('btnNotes').onclick = () => {
-  const li = a => a.length ? '<ul>' + a.map(x => `<li>${x}</li>`).join('') + '</ul>' : '<p>—</p>';
-  const auto = els.filter(e => e.autoId);
-  const unnamed = els.filter(e => e.unnamed);
-  const split = els.filter(e => e.split);
-  const mism = [];
-  for (const e of els) for (const c of e.categories) {
-    const m = c.match(/\((\d+)\/10\)\s*$/);
-    if (m && e.layer.grade && +m[1] !== e.layer.grade) mism.push(`<b>${esc(e.id)}</b>: warstwa „${esc(layerLabel(e.layer))}”, w nazwie obiektu „${esc(c)}”`);
-  }
-  document.getElementById('notesBody').innerHTML =
-    `<p>Źródło: <code>${esc(D.source)}</code>. Elementy interaktywne to obiekty z warstw <code>Stan zachowania::*</code> (${els.length}). ` +
-    `Geometria z warstw <code>Oranzeria::*</code> (duplikat, w Rhino ukryta) służy tylko do kolorów w trybie „Materiał”; warstwy <code>Skan</code> i <code>Elewacje - dokumentacja</code> nie są wyświetlane.</p>` +
-    (orphanIds.size ? `<h3>Oceny dla elementów, których nie ma już w modelu (${orphanIds.size})</h3><p>Są w <code>data/oceny.js</code>, ale model nie ma elementu o tym ID (np. został usunięty albo podzielony). Nie są wyświetlane; przy następnym „Zapisz plik” znikną z pliku.</p>${li([...orphanIds].sort(cmpNat).map(esc))}` : '') +
-    `<h3>Elementy bez bloku – ID nadane automatycznie (${auto.length})</h3><p>Według nazwy obiektu (część przed „|”). Gdy nazwa się powtarza – numer .1, .2…; ID są stałe (<code>data/id-rejestr.json</code>): istniejące elementy je zachowują, nowe dostają kolejny wolny numer.</p>${li(auto.map(e => esc(e.id) + (e.unnamed ? ' <i>(obiekt bez nazwy – nazwa wg elementu, w którym leży)</i>' : '')))}` +
-    `<h3>Bloki z członkami na różnych warstwach stanu – podzielone na wiersze (${split.length})</h3>${li(split.map(e => `${esc(e.id)} – ${esc(layerLabel(e.layer))} (${e.partCount} obiekt/y)`))}` +
-    `<h3>Niezgodność oceny w nazwie obiektu z warstwą (${mism.length})</h3><p>Opis „(x/10)” w nazwie obiektu różni się od warstwy, na której obiekt leży. Jako wartość początkową tabela przyjmuje stan z <b>warstwy</b>.</p>${li(mism)}` +
-    `<h3>Inne</h3>${li(['Blok „Stan - Impost”: jeden obiekt leży na warstwie „Ocena 10 - ruina / utrata”, ale ma kolor „z rodzica” (w Rhino wyświetla się jak 07). Przyjęto stan z warstwy (10) → wiersz <b>Impost.2</b>.',
-      'Obiekty bez nazwy: ' + (unnamed.map(e => esc(e.id)).join(', ') || '—') + '.'])}`;
-  document.getElementById('dlgNotes').showModal();
 };
 
 // ---------- start ----------
