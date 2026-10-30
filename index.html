@@ -68,7 +68,6 @@
   th.c-id { width: 25%; } th.c-sz { width: 23%; } th.c-st { width: 23%; } th.c-wt { width: 29%; }
   tbody td { padding: 5px 8px; border-bottom: 1px solid #efebe4; vertical-align: top; }
   tbody td.c-id { font-weight: 500; overflow-wrap: anywhere; }
-  tbody td.c-id .auto { color: var(--muted); font-weight: 400; font-size: 11px; display: block; }
   tbody td .sz { display: flex; gap: 6px; align-items: center; }
   tbody td select { width: 100%; border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; background: #fff; }
   tbody td.c-wt .prio { display: inline-block; font-size: 10px; font-weight: 600; border-radius: 3px; padding: 0 4px; margin-right: 4px; color: #fff; vertical-align: 1px; }
@@ -161,10 +160,10 @@
 <dialog id="dlgNotes"><div class="dh"><h2>Uwagi do modelu</h2><button class="btn" data-close>Zamknij</button></div><div class="db" id="notesBody"></div></dialog>
 
 <!-- ?v= wymusza pobranie nowej wersji po aktualizacji; zmień numer przy zmianie tych plików -->
-<script src="js/skala.js?v=6"></script>
-<script src="js/reguly-wytycznych.js?v=6"></script>
-<script src="data/model-data.js?v=6"></script>
-<script src="data/oceny.js?v=6"></script>
+<script src="js/skala.js?v=7"></script>
+<script src="js/reguly-wytycznych.js?v=7"></script>
+<script src="data/model-data.js?v=7"></script>
+<script src="data/oceny.js?v=7"></script>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -525,9 +524,8 @@ function buildRows() {
   for (const e of els) {
     const tr = document.createElement('tr');
     tr.dataset.id = e.id;
-    const sub = e.unnamed ? 'ID nadane automatycznie (obiekt bez nazwy)' : e.autoId ? 'ID nadane automatycznie (brak bloku)' : e.split ? `część bloku „${e.block}”` : '';
     tr.innerHTML =
-      `<td class="c-id" data-col="id">${esc(e.id)}${sub ? `<span class="auto">${esc(sub)}</span>` : ''}</td>` +
+      `<td class="c-id" data-col="id">${esc(e.id)}</td>` +
       `<td class="c-sz" data-col="sz"><span class="sz"><span class="chip"></span></span></td>` +
       `<td class="c-st" data-col="st"><span class="sz"><span class="chip"></span></span></td>` +
       `<td class="c-wt" data-col="wt"></td>`;
